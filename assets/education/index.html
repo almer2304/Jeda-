@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ruang Refleksi 🌿</title>
+    <style>
+        :root {
+            --bg-color: #F5F0E8;
+            --text-color: #2D2D2D;
+            --accent-color: #87A878;
+            --card-bg: #FFFFFF;
+        }
+        body {
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 16px;
+            display: flex;
+            justify-content: center;
+        }
+        .container {
+            max-width: 420px;
+            width: 100%;
+        }
+        header {
+            text-align: center;
+            margin-bottom: 32px;
+            margin-top: 16px;
+        }
+        h1 {
+            color: var(--text-color);
+            font-size: 28px;
+            margin: 0;
+        }
+        h2 {
+            font-size: 20px;
+            margin-top: 32px;
+            margin-bottom: 16px;
+            color: var(--text-color);
+        }
+        .card {
+            background-color: var(--card-bg);
+            border-radius: 16px;
+            padding: 20px;
+            margin-bottom: 16px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+            text-decoration: none;
+            display: block;
+            color: inherit;
+            transition: transform 0.2s;
+        }
+        .card:active {
+            transform: scale(0.98);
+        }
+        .card-header {
+            display: flex;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+        .emoji {
+            font-size: 24px;
+            margin-right: 12px;
+        }
+        .card-title {
+            font-weight: bold;
+            font-size: 16px;
+            margin: 0;
+        }
+        .card-preview {
+            color: #666;
+            font-size: 14px;
+            margin: 0;
+            line-height: 1.4;
+        }
+        .reflection-section {
+            background-color: var(--accent-color);
+            color: white;
+            border-radius: 16px;
+            padding: 24px;
+            text-align: center;
+            margin-top: 32px;
+            margin-bottom: 32px;
+        }
+        .reflection-section h2 {
+            color: white;
+            margin-top: 0;
+        }
+        .reflection-btn {
+            background-color: white;
+            color: var(--accent-color);
+            padding: 12px 24px;
+            border-radius: 24px;
+            text-decoration: none;
+            font-weight: bold;
+            display: inline-block;
+            margin-top: 16px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Ruang Refleksi 🌿</h1>
+        </header>
+
+        <div class="reflection-section">
+            <h2>Bagaimana Perasaanmu?</h2>
+            <p>Ambil waktu sejenak untuk mengenali tujuanmu hari ini.</p>
+            <a href="reflection.html" class="reflection-btn">Refleksi Hari Ini</a>
+        </div>
+
+        <h2>Artikel Pilihan</h2>
+        
+        <a href="articles/distraction.html" class="card">
+            <div class="card-header">
+                <span class="emoji">📱</span>
+                <h3 class="card-title">Kenapa Sulit Lepas dari Layar?</h3>
+            </div>
+            <p class="card-preview">Memahami desain adiktif di balik media sosial, game, dan aplikasi hiburan digital.</p>
+        </a>
+
+        <a href="articles/habit_replacement.html" class="card">
+            <div class="card-header">
+                <span class="emoji">🌱</span>
+                <h3 class="card-title">5 Alternatif Selain Gadget</h3>
+            </div>
+            <p class="card-preview">Temukan hal sederhana yang bisa dilakukan saat tanganmu otomatis ingin meraih HP.</p>
+        </a>
+
+        <a href="articles/triggers.html" class="card">
+            <div class="card-header">
+                <span class="emoji">🔍</span>
+                <h3 class="card-title">Kenali Pemicu Utamamu</h3>
+            </div>
+            <p class="card-preview">Bosan, cemas, atau sekadar memori otot? Mari cari tahu akar penyebabnya.</p>
+        </a>
+    </div>
+</body>
+</html>
