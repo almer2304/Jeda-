@@ -66,9 +66,10 @@ class StorageService {
     return list;
   }
 
-  Future<void> _checkAndResetQuota(QuotaEntry entry) async {
+  Future<bool> _checkAndResetQuota(QuotaEntry entry) async {
     final now = DateTime.now();
     bool needsSave = false;
+    bool wasReset = false;
 
     // Reset daily quota if new day
     if (entry.lastResetDate.year != now.year ||
@@ -77,6 +78,7 @@ class StorageService {
       entry.usedTodaySeconds = 0;
       entry.lastResetDate = now;
       needsSave = true;
+      wasReset = true;
     }
 
     // Reset weekly emergency tickets (every 7 days)
@@ -89,6 +91,7 @@ class StorageService {
     if (needsSave) {
       await _quotaBox.put(entry.id, entry);
     }
+    return wasReset;
   }
 
   Future<void> addQuotaUsage(String packageName, int seconds) async {
@@ -96,6 +99,29 @@ class StorageService {
       if (entry.packageNames.contains(packageName)) {
         await _checkAndResetQuota(entry);
         entry.usedTodaySeconds += seconds;
+        await _quotaBox.put(entry.id, entry);
+      }
+    }
+  }
+
+  Future<void> syncNativeQuotaUsage(Map<String, int> nativeUsage) async {
+    for (var entry in _quotaBox.values) {
+      final wasReset = await _checkAndResetQuota(entry);
+      if (wasReset) {
+        // If quota was reset for the new day in Flutter, keep usedTodaySeconds at 0
+        continue;
+      }
+      int maxUsed = entry.usedTodaySeconds;
+      for (var pkg in entry.packageNames) {
+        if (nativeUsage.containsKey(pkg)) {
+          final nativeSec = nativeUsage[pkg] ?? 0;
+          if (nativeSec > maxUsed) {
+            maxUsed = nativeSec;
+          }
+        }
+      }
+      if (maxUsed != entry.usedTodaySeconds) {
+        entry.usedTodaySeconds = maxUsed;
         await _quotaBox.put(entry.id, entry);
       }
     }
@@ -141,6 +167,8 @@ class StorageService {
     rules.addAll(lockRules);
 
     // 2. QuotaEntry rules
+    final now = DateTime.now();
+    final todayStr = "${now.year.toString().padLeft(4, '0')}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}";
     for (var entry in _quotaBox.values) {
       _checkAndResetQuota(entry);
       for (var pkg in entry.packageNames) {
@@ -152,6 +180,7 @@ class StorageService {
           "groupName": entry.groupName,
           "dailyQuotaSeconds": entry.dailyQuotaMinutes * 60,
           "usedTodaySeconds": entry.usedTodaySeconds,
+          "lastResetDate": todayStr,
           "emergencyTickets": entry.emergencyTickets,
           "isEmergencyActive": entry.isEmergencyActive,
           "emergencyUntilMillis": entry.activeEmergencyUntil?.millisecondsSinceEpoch ?? 0,
@@ -189,6 +218,10 @@ class StorageService {
 
   Future<int> getStreakDays() async {
     return _statsBox.get('streak_days', defaultValue: 0) as int;
+  }
+
+  Future<void> saveStreakDays(int days) async {
+    await _statsBox.put('streak_days', days);
   }
 
   bool isOnboardingDone() {

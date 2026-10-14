@@ -48,6 +48,34 @@ class MainActivity : FlutterActivity() {
                 runOnUiThread {
                     eventSink?.success("EMERGENCY_TICKET_USED:$quotaId:$durationMinutes")
                 }
+            } else if (intent?.action == "QUOTA_USAGE_TICK") {
+                val packageName = intent.getStringExtra("package_name") ?: ""
+                val seconds = intent.getIntExtra("seconds", 0)
+                runOnUiThread {
+                    eventSink?.success("QUOTA_USAGE:$packageName:$seconds")
+                }
+            }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        checkAndSendAdminAttempt(intent)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        checkAndSendAdminAttempt(intent)
+    }
+
+    private fun checkAndSendAdminAttempt(currIntent: Intent?) {
+        if (currIntent?.getStringExtra("action") == "ADMIN_DISABLE_ATTEMPT" ||
+            currIntent?.getStringExtra("route") == "/forced_uninstall_warning") {
+            currIntent.removeExtra("action")
+            currIntent.removeExtra("route")
+            runOnUiThread {
+                eventSink?.success("ADMIN_DISABLE_REQUESTED")
             }
         }
     }
@@ -59,6 +87,7 @@ class MainActivity : FlutterActivity() {
         filter.addAction("APP_BLOCKED_EVENT")
         filter.addAction("JEDA_ADMIN_DISABLE_REQUESTED")
         filter.addAction("USE_EMERGENCY_TICKET")
+        filter.addAction("QUOTA_USAGE_TICK")
         LocalBroadcastManager.getInstance(this).registerReceiver(blockEventReceiver, filter)
         // Also register globally for the device admin broadcast
         registerReceiver(blockEventReceiver, IntentFilter("JEDA_ADMIN_DISABLE_REQUESTED"))
@@ -142,7 +171,7 @@ class MainActivity : FlutterActivity() {
                         result.success(null)
                     }
                     "checkOverlayPermission" -> {
-                        val overlayManager = OverlayManager(this)
+                        val overlayManager = OverlayManager.getInstance(this)
                         result.success(overlayManager.isPermissionGranted())
                     }
                     "openOverlaySettings" -> {
@@ -258,6 +287,30 @@ class MainActivity : FlutterActivity() {
                             dpm.removeActiveAdmin(compName)
                         }
                         result.success(null)
+                    }
+                    "getNativeQuotaUsage" -> {
+                        BlockRulesManager.checkAndResetDailyQuotas(this)
+                        val prefs = getSharedPreferences("JedaNativePrefs", Context.MODE_PRIVATE)
+                        val jsonString = prefs.getString("blocked_rules_json", null)
+                        val usageMap = mutableMapOf<String, Int>()
+                        if (jsonString != null) {
+                            try {
+                                val array = JSONArray(jsonString)
+                                for (i in 0 until array.length()) {
+                                    val obj = array.getJSONObject(i)
+                                    if (obj.optBoolean("isQuota", false)) {
+                                        val pkg = obj.optString("packageName")
+                                        val used = obj.optInt("usedTodaySeconds", 0)
+                                        if (pkg.isNotEmpty()) {
+                                            usageMap[pkg] = used
+                                        }
+                                    }
+                                }
+                            } catch (e: Exception) {
+                                e.printStackTrace()
+                            }
+                        }
+                        result.success(usageMap)
                     }
                     else -> result.notImplemented()
                 }

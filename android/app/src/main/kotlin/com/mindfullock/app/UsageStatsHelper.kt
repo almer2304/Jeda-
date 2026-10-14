@@ -9,27 +9,58 @@ import android.os.Process
 
 object UsageStatsHelper {
 
+    @Volatile
+    private var cachedForegroundPackage: String? = null
+    @Volatile
+    private var lastObservedEventTime: Long = 0L
+
+    fun resetCache() {
+        cachedForegroundPackage = null
+        lastObservedEventTime = System.currentTimeMillis()
+    }
+
     fun getForegroundApp(context: Context): String? {
         try {
             val usageStatsManager = context.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
             val endTime = System.currentTimeMillis()
-            val startTime = endTime - 3000 // 3 seconds window
+            val startTime = endTime - 10000 // 10 seconds event search window
 
             val usageEvents = usageStatsManager.queryEvents(startTime, endTime)
             val event = UsageEvents.Event()
-            var lastForegroundPackage: String? = null
-            var lastEventTime: Long = 0L
+            var currentForeground: String? = null
+            var latestTimestamp = 0L
 
             while (usageEvents.hasNextEvent()) {
                 usageEvents.getNextEvent(event)
-                if (event.eventType == UsageEvents.Event.ACTIVITY_RESUMED || event.eventType == UsageEvents.Event.MOVE_TO_FOREGROUND) {
-                    if (event.timeStamp > lastEventTime) {
-                        lastEventTime = event.timeStamp
-                        lastForegroundPackage = event.packageName
+                if (event.timeStamp >= latestTimestamp) {
+                    when (event.eventType) {
+                        UsageEvents.Event.ACTIVITY_RESUMED,
+                        UsageEvents.Event.MOVE_TO_FOREGROUND -> {
+                            currentForeground = event.packageName
+                            latestTimestamp = event.timeStamp
+                        }
+                        UsageEvents.Event.ACTIVITY_PAUSED,
+                        UsageEvents.Event.ACTIVITY_STOPPED,
+                        UsageEvents.Event.MOVE_TO_BACKGROUND -> {
+                            if (event.packageName == currentForeground) {
+                                currentForeground = null
+                            }
+                            latestTimestamp = event.timeStamp
+                        }
                     }
                 }
             }
-            return lastForegroundPackage
+
+            if (currentForeground != null) {
+                cachedForegroundPackage = currentForeground
+                lastObservedEventTime = latestTimestamp
+                return currentForeground
+            }
+
+            // No active resumed app found in recent events
+            // Clear stale cache and return null
+            cachedForegroundPackage = null
+            return null
         } catch (e: Exception) {
             e.printStackTrace()
             return null

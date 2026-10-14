@@ -1,15 +1,14 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:jeda/core/services/native_bridge_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:async';
 
 class UninstallFrictionScreen extends ConsumerStatefulWidget {
-  const UninstallFrictionScreen({Key? key}) : super(key: key);
+  const UninstallFrictionScreen({super.key});
 
   @override
-  _UninstallFrictionScreenState createState() => _UninstallFrictionScreenState();
+  ConsumerState<UninstallFrictionScreen> createState() => _UninstallFrictionScreenState();
 }
 
 class _UninstallFrictionScreenState extends ConsumerState<UninstallFrictionScreen> {
@@ -73,7 +72,7 @@ class _UninstallFrictionScreenState extends ConsumerState<UninstallFrictionScree
       if (_cooldownEnd!.isAfter(now)) {
         final diff = _cooldownEnd!.difference(now);
         setState(() {
-          _cooldownRemaining = "\${diff.inMinutes.toString().padLeft(2, '0')}:\${(diff.inSeconds % 60).toString().padLeft(2, '0')}";
+          _cooldownRemaining = "${diff.inMinutes.toString().padLeft(2, '0')}:${(diff.inSeconds % 60).toString().padLeft(2, '0')}";
         });
       } else {
         timer.cancel();
@@ -148,95 +147,109 @@ class _UninstallFrictionScreenState extends ConsumerState<UninstallFrictionScree
   }
 
   Widget _buildStep1GuiltTrip() {
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        const Icon(Icons.shield_outlined, size: 80, color: Colors.white54),
-        const SizedBox(height: 24),
-        const Text(
-          "Yakin mau melepaskan Bodyguard-mu?",
-          textAlign: TextAlign.center,
-          style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white),
+    return Center(
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Icon(Icons.shield_outlined, size: 80, color: Colors.white54),
+            const SizedBox(height: 24),
+            const Text(
+              "Yakin mau melepaskan Bodyguard-mu?",
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white),
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              "Jeda telah melindungimu dari ribuan distraksi. Jika kamu menonaktifkannya, kamu akan kembali rentan terhadap godaan media sosial dan aplikasi yang menyita waktumu.",
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 16, color: Colors.white70),
+            ),
+            const SizedBox(height: 48),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.grey[800],
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+              onPressed: () => Navigator.pop(context),
+              child: const Text("Kembali Fokus", style: TextStyle(color: Colors.white, fontSize: 16)),
+            ),
+            const SizedBox(height: 16),
+            TextButton(
+              onPressed: _nextStep,
+              child: const Text("Saya tetap ingin menonaktifkan", style: TextStyle(color: Colors.redAccent)),
+            ),
+          ],
         ),
-        const SizedBox(height: 16),
-        const Text(
-          "Jeda telah melindungimu dari ribuan distraksi. Jika kamu menonaktifkannya, kamu akan kembali rentan terhadap godaan media sosial dan aplikasi yang menyita waktumu.",
-          textAlign: TextAlign.center,
-          style: TextStyle(fontSize: 16, color: Colors.white70),
-        ),
-        const SizedBox(height: 48),
-        ElevatedButton(
-          style: ElevatedButton.styleFrom(
-            backgroundColor: Colors.grey[800],
-            padding: const EdgeInsets.symmetric(vertical: 16),
-          ),
-          onPressed: () => Navigator.pop(context),
-          child: const Text("Kembali Fokus", style: TextStyle(color: Colors.white, fontSize: 16)),
-        ),
-        const SizedBox(height: 16),
-        TextButton(
-          onPressed: _nextStep,
-          child: const Text("Saya tetap ingin menonaktifkan", style: TextStyle(color: Colors.redAccent)),
-        ),
-      ],
+      ),
     );
   }
 
   Widget _buildStep2Typing() {
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        const Text(
-          "Ketik Komitmenmu",
-          textAlign: TextAlign.center,
-          style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white),
-        ),
-        const SizedBox(height: 16),
-        const Text(
-          "Ketik ulang teks di bawah ini dengan tepat (tanpa copy-paste) untuk membuktikan kamu sadar sepenuhnya:",
-          textAlign: TextAlign.center,
-          style: TextStyle(fontSize: 14, color: Colors.white70),
-        ),
-        const SizedBox(height: 24),
-        Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: Colors.black54,
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: Colors.white24),
+    final isMatch = _textController.text.trim() == _targetPhrase.trim();
+
+    return SingleChildScrollView(
+      physics: const BouncingScrollPhysics(),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Text(
+            "Ketik Komitmenmu",
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white),
           ),
-          child: Text(
-            _targetPhrase,
-            style: const TextStyle(color: Colors.white, fontStyle: FontStyle.italic),
+          const SizedBox(height: 16),
+          const Text(
+            "Ketik ulang teks di bawah ini dengan tepat (tanpa copy-paste) untuk membuktikan kamu sadar sepenuhnya:",
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 14, color: Colors.white70),
           ),
-        ),
-        const SizedBox(height: 24),
-        TextField(
-          controller: _textController,
-          maxLines: 4,
-          style: const TextStyle(color: Colors.white),
-          enableInteractiveSelection: false, // Disables copy/paste
-          decoration: InputDecoration(
-            hintText: "Ketik di sini...",
-            hintStyle: const TextStyle(color: Colors.white30),
-            filled: true,
-            fillColor: Colors.grey[800],
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+          const SizedBox(height: 20),
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.black54,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: Colors.white24),
+            ),
+            child: Text(
+              _targetPhrase,
+              style: const TextStyle(color: Colors.white, fontStyle: FontStyle.italic, height: 1.45),
+            ),
           ),
-          onChanged: (val) => setState(() {}),
-        ),
-        const Spacer(),
-        ElevatedButton(
-          style: ElevatedButton.styleFrom(
-            backgroundColor: _textController.text == _targetPhrase ? Colors.red : Colors.grey,
-            padding: const EdgeInsets.symmetric(vertical: 16),
+          const SizedBox(height: 20),
+          TextField(
+            controller: _textController,
+            maxLines: 4,
+            style: const TextStyle(color: Colors.white),
+            enableInteractiveSelection: false, // Disables copy/paste
+            decoration: InputDecoration(
+              hintText: "Ketik di sini...",
+              hintStyle: const TextStyle(color: Colors.white30),
+              filled: true,
+              fillColor: Colors.grey[800],
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+            onChanged: (val) => setState(() {}),
           ),
-          onPressed: _textController.text == _targetPhrase ? _nextStep : null,
-          child: const Text("Lanjut", style: TextStyle(color: Colors.white, fontSize: 16)),
-        ),
-      ],
+          const SizedBox(height: 24),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: isMatch ? Colors.red : Colors.grey[700],
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            onPressed: isMatch ? _nextStep : null,
+            child: const Text(
+              "Lanjut",
+              style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+          ),
+          const SizedBox(height: 20),
+        ],
+      ),
     );
   }
 
@@ -255,9 +268,10 @@ class _UninstallFrictionScreenState extends ConsumerState<UninstallFrictionScree
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
               color: Colors.black54,
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(10),
             ),
             child: const SingleChildScrollView(
+              physics: BouncingScrollPhysics(),
               child: Text(
                 "Aplikasi Jeda dirancang bukan sebagai penjara, melainkan sebagai tameng. "
                 "Setiap kali kamu membuka HP, perusahaan teknologi menggunakan trik psikologis "
@@ -284,86 +298,98 @@ class _UninstallFrictionScreenState extends ConsumerState<UninstallFrictionScree
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.red,
               padding: const EdgeInsets.symmetric(vertical: 16),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
             ),
             onPressed: _initiateCooldown,
-            child: const Text("Saya Paham, Lanjut", style: TextStyle(color: Colors.white, fontSize: 16)),
+            child: const Text("Saya Paham, Lanjut", style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
           ),
       ],
     );
   }
 
   Widget _buildStep4Cooldown() {
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        const Icon(Icons.timer_outlined, size: 80, color: Colors.orange),
-        const SizedBox(height: 24),
-        const Text(
-          "Waktu Tunggu (Cooling-Off)",
-          textAlign: TextAlign.center,
-          style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white),
+    return Center(
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Icon(Icons.timer_outlined, size: 80, color: Colors.orange),
+            const SizedBox(height: 24),
+            const Text(
+              "Waktu Tunggu (Cooling-Off)",
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white),
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              "Permintaan penonaktifan diterima. Untuk memastikan ini bukan keputusan impulsif, perlindungan baru bisa dilepas dalam:",
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 16, color: Colors.white70),
+            ),
+            const SizedBox(height: 32),
+            Text(
+              _cooldownRemaining,
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 48, fontWeight: FontWeight.bold, color: Colors.orangeAccent),
+            ),
+            const SizedBox(height: 48),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.grey[800],
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+              onPressed: () => Navigator.pop(context),
+              child: const Text("Tutup dan Kembali", style: TextStyle(color: Colors.white, fontSize: 16)),
+            ),
+          ],
         ),
-        const SizedBox(height: 16),
-        const Text(
-          "Permintaan penonaktifan diterima. Untuk memastikan ini bukan keputusan impulsif, perlindungan baru bisa dilepas dalam:",
-          textAlign: TextAlign.center,
-          style: TextStyle(fontSize: 16, color: Colors.white70),
-        ),
-        const SizedBox(height: 32),
-        Text(
-          _cooldownRemaining,
-          textAlign: TextAlign.center,
-          style: const TextStyle(fontSize: 48, fontWeight: FontWeight.bold, color: Colors.orangeAccent),
-        ),
-        const SizedBox(height: 48),
-        ElevatedButton(
-          style: ElevatedButton.styleFrom(
-            backgroundColor: Colors.grey[800],
-            padding: const EdgeInsets.symmetric(vertical: 16),
-          ),
-          onPressed: () => Navigator.pop(context),
-          child: const Text("Tutup dan Kembali", style: TextStyle(color: Colors.white, fontSize: 16)),
-        ),
-      ],
+      ),
     );
   }
 
   Widget _buildFinalAllow() {
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        const Icon(Icons.warning_amber_rounded, size: 80, color: Colors.redAccent),
-        const SizedBox(height: 24),
-        const Text(
-          "Perlindungan Siap Dilepas",
-          textAlign: TextAlign.center,
-          style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white),
+    return Center(
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Icon(Icons.warning_amber_rounded, size: 80, color: Colors.redAccent),
+            const SizedBox(height: 24),
+            const Text(
+              "Perlindungan Siap Dilepas",
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white),
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              "Waktu tunggu telah berakhir. Kamu sekarang bisa menonaktifkan Jeda.",
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 16, color: Colors.white70),
+            ),
+            const SizedBox(height: 48),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.red[900],
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+              onPressed: () async {
+                final bridge = ref.read(nativeBridgeServiceProvider);
+                await bridge.removeDeviceAdmin();
+                if (!mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Device Admin dinonaktifkan. Kamu bisa uninstall Jeda sekarang.')),
+                );
+                Navigator.pop(context);
+              },
+              child: const Text("Nonaktifkan Device Admin", style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+            ),
+          ],
         ),
-        const SizedBox(height: 16),
-        const Text(
-          "Waktu tunggu telah berakhir. Kamu sekarang bisa menonaktifkan Jeda.",
-          textAlign: TextAlign.center,
-          style: TextStyle(fontSize: 16, color: Colors.white70),
-        ),
-        const SizedBox(height: 48),
-        ElevatedButton(
-          style: ElevatedButton.styleFrom(
-            backgroundColor: Colors.red[900],
-            padding: const EdgeInsets.symmetric(vertical: 16),
-          ),
-          onPressed: () async {
-            final bridge = ref.read(nativeBridgeServiceProvider);
-            await bridge.removeDeviceAdmin();
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Device Admin dinonaktifkan. Kamu bisa uninstall Jeda sekarang.')),
-            );
-            Navigator.pop(context);
-          },
-          child: const Text("Nonaktifkan Device Admin", style: TextStyle(color: Colors.white, fontSize: 16)),
-        ),
-      ],
+      ),
     );
   }
 }

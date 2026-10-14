@@ -2,7 +2,6 @@ package com.mindfullock.app
 
 import android.accessibilityservice.AccessibilityService
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.view.accessibility.AccessibilityEvent
 import androidx.localbroadcastmanager.content.LocalBroadcastManager
 import kotlinx.coroutines.*
@@ -11,54 +10,35 @@ class JedaAccessibilityService : AccessibilityService() {
 
     private lateinit var overlayManager: OverlayManager
 
+    @Volatile
     private var lastForegroundPackage: String = ""
+    @Volatile
     private var currentlyBlockedPackage: String = ""
 
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private var safetyCheckJob: Job? = null
 
-    // System UI packages (notification shade, status bar, recents menu)
-    private val systemUiPackages = setOf(
-        "com.android.systemui"
-    )
+    companion object {
+        @Volatile
+        var isServiceRunning: Boolean = false
+            private set
 
-    // Fallback launcher packages list
-    private val launcherPackagesFallback = setOf(
-        "com.android.launcher",
-        "com.android.launcher2",
-        "com.android.launcher3",
-        "com.google.android.apps.nexuslauncher",
-        "com.sec.android.app.launcher",
-        "com.miui.home",
-        "com.huawei.android.launcher",
-        "com.oppo.launcher",
-        "com.vivo.launcher",
-        "com.oneplus.launcher",
-        "com.nothing.launcher",
-        "com.transsion.hilauncher",
-        "com.transsion.XOSLauncher",
-        "com.teslacoilsw.launcher"
-    )
+        @Volatile
+        private var activeService: JedaAccessibilityService? = null
 
-    private fun isLauncherPackage(packageName: String): Boolean {
-        try {
-            val intent = Intent(Intent.ACTION_MAIN).apply {
-                addCategory(Intent.CATEGORY_HOME)
+        fun clearBlockedState() {
+            activeService?.let {
+                it.currentlyBlockedPackage = ""
+                it.lastForegroundPackage = ""
             }
-            val resolveInfo = packageManager.resolveActivity(intent, PackageManager.MATCH_DEFAULT_ONLY)
-            val defaultLauncher = resolveInfo?.activityInfo?.packageName
-            if (defaultLauncher != null && packageName == defaultLauncher) {
-                return true
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
         }
-        return launcherPackagesFallback.any { packageName.startsWith(it) }
     }
 
     override fun onCreate() {
         super.onCreate()
-        overlayManager = OverlayManager(this)
+        isServiceRunning = true
+        activeService = this
+        overlayManager = OverlayManager.getInstance(this)
         BlockRulesManager.loadRules(this)
         startSafetyCheckLoop()
     }
@@ -66,42 +46,60 @@ class JedaAccessibilityService : AccessibilityService() {
     private fun startSafetyCheckLoop() {
         safetyCheckJob?.cancel()
         safetyCheckJob = scope.launch {
+            var quotaTrackingPkg = ""
+            var quotaSeconds = 0
             while (isActive) {
-                delay(1500)
+                delay(1000)
                 try {
-                    val foregroundPkg = UsageStatsHelper.getForegroundApp(this@JedaAccessibilityService)
-                        ?: continue
+                    val currentPkg = lastForegroundPackage
 
-                    if (foregroundPkg == this@JedaAccessibilityService.packageName) {
+                    // 1. If exiting or empty or launcher/system, hide overlay and do not block
+                    if (currentPkg.isEmpty() ||
+                        overlayManager.isExitingBlockedApp(currentPkg) ||
+                        LauncherHelper.isLauncherOrSystem(this@JedaAccessibilityService, currentPkg)) {
+                        
                         if (overlayManager.isShowing()) {
                             overlayManager.hideOverlay()
                             currentlyBlockedPackage = ""
                         }
-                        continue
-                    }
-
-                    if (isLauncherPackage(foregroundPkg)) {
-                        if (overlayManager.isShowing()) {
-                            overlayManager.hideOverlay()
-                            currentlyBlockedPackage = ""
+                        if (quotaTrackingPkg.isNotEmpty() && quotaSeconds > 0) {
+                            BlockRulesManager.incrementQuotaUsage(quotaTrackingPkg, quotaSeconds, this@JedaAccessibilityService)
+                            quotaTrackingPkg = ""
+                            quotaSeconds = 0
                         }
                         continue
                     }
 
-                    val isBlocked = BlockRulesManager.isAppBlocked(foregroundPkg)
+                    // 2. Quota tracking: Every 1 second in foreground
+                    if (currentPkg == quotaTrackingPkg) {
+                        quotaSeconds++
+                        if (quotaSeconds >= 1) {
+                            BlockRulesManager.incrementQuotaUsage(quotaTrackingPkg, quotaSeconds, this@JedaAccessibilityService)
+                            quotaSeconds = 0
+                        }
+                    } else {
+                        if (quotaTrackingPkg.isNotEmpty() && quotaSeconds > 0) {
+                            BlockRulesManager.incrementQuotaUsage(quotaTrackingPkg, quotaSeconds, this@JedaAccessibilityService)
+                        }
+                        quotaTrackingPkg = currentPkg
+                        quotaSeconds = 1
+                        BlockRulesManager.incrementQuotaUsage(quotaTrackingPkg, quotaSeconds, this@JedaAccessibilityService)
+                        quotaSeconds = 0
+                    }
+
+                    // 3. Blocking check
+                    val isBlocked = BlockRulesManager.isAppBlocked(currentPkg, this@JedaAccessibilityService)
 
                     if (isBlocked) {
-                        if (!overlayManager.isShowing() && !overlayManager.isExitingBlockedApp(foregroundPkg)) {
-                            currentlyBlockedPackage = foregroundPkg
-                            overlayManager.showOverlay(foregroundPkg)
-                            broadcastBlockedEvent(foregroundPkg)
+                        if (!overlayManager.isShowing() && !overlayManager.isExitingBlockedApp(currentPkg)) {
+                            currentlyBlockedPackage = currentPkg
+                            overlayManager.showOverlay(currentPkg)
+                            broadcastBlockedEvent(currentPkg)
                         }
                     } else {
                         if (overlayManager.isShowing()) {
-                            if (!systemUiPackages.any { foregroundPkg.startsWith(it) }) {
-                                overlayManager.hideOverlay()
-                                currentlyBlockedPackage = ""
-                            }
+                            overlayManager.hideOverlay()
+                            currentlyBlockedPackage = ""
                         }
                     }
                 } catch (e: Exception) {
@@ -113,8 +111,6 @@ class JedaAccessibilityService : AccessibilityService() {
 
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
         // ONLY respond to TYPE_WINDOW_STATE_CHANGED for app switching.
-        // TYPE_WINDOWS_CHANGED triggers on every overlay/window buffer creation (gralloc allocation),
-        // which was causing rapid show/hide glitching.
         if (event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
             return
         }
@@ -131,18 +127,26 @@ class JedaAccessibilityService : AccessibilityService() {
                 val texts = nodeInfo.findAccessibilityNodeInfosByText("Jeda")
                 if (texts.isNotEmpty()) {
                     performGlobalAction(GLOBAL_ACTION_HOME)
+                    JedaDeviceAdminReceiver.showBypassWarningNotification(this)
                     val launchIntent = packageManager.getLaunchIntentForPackage(this.packageName)
                     launchIntent?.let {
                         it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
                         it.putExtra("route", "/forced_uninstall_warning")
+                        it.putExtra("action", "ADMIN_DISABLE_ATTEMPT")
                         startActivity(it)
                     }
+                    val intent = Intent("JEDA_ADMIN_DISABLE_REQUESTED")
+                    LocalBroadcastManager.getInstance(this).sendBroadcast(intent)
+                    sendBroadcast(intent)
                 }
                 nodeInfo.recycle()
             }
         }
 
-        // === 2. Skip our own package ===
+        // === 2. ALWAYS update lastForegroundPackage ===
+        lastForegroundPackage = packageName
+
+        // === 3. Skip our own package ===
         if (packageName == this.packageName) {
             if (overlayManager.isShowing()) {
                 overlayManager.hideOverlay()
@@ -151,8 +155,8 @@ class JedaAccessibilityService : AccessibilityService() {
             return
         }
 
-        // === 3. Launcher check ===
-        if (isLauncherPackage(packageName)) {
+        // === 4. Launcher & System UI check ===
+        if (LauncherHelper.isLauncherOrSystem(this, packageName)) {
             if (overlayManager.isShowing()) {
                 overlayManager.hideOverlay()
                 currentlyBlockedPackage = ""
@@ -160,14 +164,7 @@ class JedaAccessibilityService : AccessibilityService() {
             return
         }
 
-        // === 4. Pure System UI check ===
-        val isSystemUi = systemUiPackages.any { packageName.startsWith(it) }
-        if (isSystemUi) {
-            return
-        }
-
         // === 5. App Blocking Logic ===
-        lastForegroundPackage = packageName
         val isBlocked = BlockRulesManager.isAppBlocked(packageName, this)
 
         if (isBlocked) {
@@ -177,27 +174,10 @@ class JedaAccessibilityService : AccessibilityService() {
                 broadcastBlockedEvent(packageName)
             }
         } else {
-            // App is NOT blocked. Ensure we don't prematurely hide overlay if the user is still in the blocked app
+            // App is NOT blocked. Hide overlay immediately.
             if (overlayManager.isShowing()) {
-                val currentBlocked = currentlyBlockedPackage
-                scope.launch {
-                    delay(200)
-                    try {
-                        val trueForeground = UsageStatsHelper.getForegroundApp(this@JedaAccessibilityService)
-                        if (trueForeground != null) {
-                            if (!BlockRulesManager.isAppBlocked(trueForeground, this@JedaAccessibilityService) &&
-                                !systemUiPackages.any { trueForeground.startsWith(it) }) {
-                                overlayManager.hideOverlay()
-                                currentlyBlockedPackage = ""
-                            }
-                        } else if (currentBlocked.isNotEmpty() && !BlockRulesManager.isAppBlocked(packageName, this@JedaAccessibilityService)) {
-                            overlayManager.hideOverlay()
-                            currentlyBlockedPackage = ""
-                        }
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                    }
-                }
+                overlayManager.hideOverlay()
+                currentlyBlockedPackage = ""
             }
         }
     }
@@ -212,6 +192,8 @@ class JedaAccessibilityService : AccessibilityService() {
 
     override fun onDestroy() {
         super.onDestroy()
+        isServiceRunning = false
+        activeService = null
         safetyCheckJob?.cancel()
         scope.cancel()
     }

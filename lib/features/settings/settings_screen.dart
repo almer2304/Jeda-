@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/services/native_bridge_service.dart';
+import '../../core/providers/auth_provider.dart';
+import '../auth/login_screen.dart';
 import 'uninstall_friction_screen.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
@@ -17,10 +19,18 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   @override
   void initState() {
     super.initState();
-    // We delay the first fetch slightly to let the widget mount and ref be ready
     Future.microtask(() {
       _refreshPermissions();
+      // Pastikan state auth selalu segar saat buka tab Pengaturan (IndexedStack tidak rebuild otomatis)
+      ref.read(authStateProvider.notifier).checkCurrentUser();
     });
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Ketika kembali dari LoginScreen via Navigator.pop, paksa refresh
+    ref.read(authStateProvider.notifier).checkCurrentUser();
   }
 
   void _refreshPermissions() {
@@ -36,6 +46,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     });
   }
 
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -48,7 +59,267 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          _buildSectionHeader('Akun & Sinkronisasi Cloud 🌿'),
+          Consumer(
+            builder: (context, ref, child) {
+              final authState = ref.watch(authStateProvider);
+              return authState.when(
+                data: (user) {
+                  if (user != null) {
+                    return Card(
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                      child: Padding(
+                        padding: const EdgeInsets.all(16.0),
+                        child: Column(
+                          children: [
+                            Row(
+                              children: [
+                                CircleAvatar(
+                                  backgroundColor: const Color(0xFFEAF2E8),
+                                  radius: 26,
+                                  child: Text(
+                                    user.name.isNotEmpty ? user.name.substring(0, 1).toUpperCase() : 'U',
+                                    style: const TextStyle(
+                                      fontSize: 22,
+                                      fontWeight: FontWeight.bold,
+                                      color: Color(0xFF87A878),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 14),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        user.name,
+                                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                                      ),
+                                      Text(
+                                        '@${user.username} • ${user.email}',
+                                        style: const TextStyle(fontSize: 12, color: Colors.grey),
+                                      ),
+                                      const SizedBox(height: 6),
+                                      Wrap(
+                                        spacing: 6,
+                                        runSpacing: 4,
+                                        children: [
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                            decoration: BoxDecoration(
+                                              color: const Color(0xFFEAF2E8),
+                                              borderRadius: BorderRadius.circular(6),
+                                            ),
+                                            child: Text(
+                                              '🌟 ${user.totalPoints} Poin • 🔥 ${user.currentStreakDays} Hari',
+                                              style: const TextStyle(
+                                                fontSize: 11,
+                                                fontWeight: FontWeight.bold,
+                                                color: Color(0xFF87A878),
+                                              ),
+                                            ),
+                                          ),
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                            decoration: BoxDecoration(
+                                              color: Colors.blue[50],
+                                              borderRadius: BorderRadius.circular(6),
+                                            ),
+                                            child: Text(
+                                              '👥 ${user.followersCount} Pengikut • ${user.followingCount} Mengikuti',
+                                              style: TextStyle(
+                                                fontSize: 11,
+                                                fontWeight: FontWeight.bold,
+                                                color: Colors.blue[800],
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const Divider(height: 24),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                TextButton.icon(
+                                  onPressed: () {
+                                    ref.read(authStateProvider.notifier).refreshProfile();
+                                  },
+                                  icon: const Icon(Icons.refresh, size: 16, color: Color(0xFF87A878)),
+                                  label: const Text('Refresh', style: TextStyle(color: Color(0xFF87A878), fontSize: 13)),
+                                ),
+                                ElevatedButton.icon(
+                                  onPressed: () async {
+                                    final confirm = await showDialog<bool>(
+                                      context: context,
+                                      builder: (ctx) => AlertDialog(
+                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                                        title: const Text('Keluar Akun'),
+                                        content: const Text('Apakah kamu yakin ingin keluar dari akun ini?'),
+                                        actions: [
+                                          TextButton(
+                                            onPressed: () => Navigator.pop(ctx, false),
+                                            child: const Text('Batal'),
+                                          ),
+                                          ElevatedButton(
+                                            onPressed: () => Navigator.pop(ctx, true),
+                                            style: ElevatedButton.styleFrom(
+                                              backgroundColor: Colors.redAccent,
+                                              foregroundColor: Colors.white,
+                                            ),
+                                            child: const Text('Keluar'),
+                                          ),
+                                        ],
+                                      ),
+                                    );
+                                    if (confirm == true) {
+                                      await ref.read(authStateProvider.notifier).logout();
+                                      if (context.mounted) {
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          const SnackBar(content: Text('Berhasil keluar akun')),
+                                        );
+                                      }
+                                    }
+                                  },
+                                  icon: const Icon(Icons.logout, size: 16),
+                                  label: const Text('Keluar Akun'),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: Colors.redAccent.withValues(alpha: 0.1),
+                                    foregroundColor: Colors.redAccent,
+                                    elevation: 0,
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  } else {
+                    return Card(
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                      child: Padding(
+                        padding: const EdgeInsets.all(16.0),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Belum Masuk Akun 🌿',
+                              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                            ),
+                            const SizedBox(height: 4),
+                            const Text(
+                              'Masuk atau daftar akun untuk mencatat streak, membuka badge, dan ikut leaderboard komunitas.',
+                              style: TextStyle(fontSize: 12, color: Colors.grey),
+                            ),
+                            const SizedBox(height: 12),
+                            SizedBox(
+                              width: double.infinity,
+                              child: ElevatedButton(
+                                onPressed: () {
+                                  Navigator.of(context).push(
+                                    MaterialPageRoute(builder: (context) => const LoginScreen()),
+                                  );
+                                },
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFF87A878),
+                                  foregroundColor: Colors.white,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                ),
+                                child: const Text('Masuk / Daftar Akun'),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  }
+                },
+                loading: () => const Center(
+                  child: Padding(
+                    padding: EdgeInsets.all(16.0),
+                    child: CircularProgressIndicator(color: Color(0xFF87A878)),
+                  ),
+                ),
+                error: (e, _) => Card(
+                  elevation: 0,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                  child: Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Row(
+                          children: [
+                            Icon(Icons.cloud_off, color: Colors.orange, size: 20),
+                            SizedBox(width: 8),
+                            Text(
+                              'Gagal Memuat Akun Cloud',
+                              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          e.toString().replaceFirst('Exception: ', ''),
+                          style: const TextStyle(fontSize: 12, color: Colors.grey),
+                        ),
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: OutlinedButton(
+                                onPressed: () {
+                                  ref.read(authStateProvider.notifier).checkCurrentUser();
+                                },
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: const Color(0xFF87A878),
+                                  side: const BorderSide(color: Color(0xFF87A878)),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                ),
+                                child: const Text('Coba Lagi'),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: ElevatedButton(
+                                onPressed: () async {
+                                  await ref.read(authStateProvider.notifier).logout();
+                                  if (context.mounted) {
+                                    Navigator.of(context).push(
+                                      MaterialPageRoute(builder: (context) => const LoginScreen()),
+                                    );
+                                  }
+                                },
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.redAccent,
+                                  foregroundColor: Colors.white,
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                ),
+                                child: const Text('Keluar / Ganti'),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+          const SizedBox(height: 24),
           _buildSectionHeader('Status Izin Sistem'),
+
           Card(
             elevation: 0,
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),

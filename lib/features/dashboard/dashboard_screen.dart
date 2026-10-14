@@ -9,6 +9,12 @@ import '../lock_manager/add_lock_screen.dart';
 import '../lock_manager/add_quota_screen.dart';
 import '../education/education_screen.dart';
 import '../settings/settings_screen.dart';
+import '../settings/uninstall_friction_screen.dart';
+import '../gamification/gamification_screen.dart';
+import '../../core/services/api_service.dart';
+import '../../core/providers/auth_provider.dart';
+
+
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -19,26 +25,38 @@ class DashboardScreen extends StatefulWidget {
 
 class _DashboardScreenState extends State<DashboardScreen> {
   int _currentIndex = 0;
+  final Set<int> _loadedTabs = {0};
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       body: IndexedStack(
         index: _currentIndex,
-        children: const [
-          DashboardBody(),
-          EducationScreen(),
-          SettingsScreen(),
+        children: [
+          const DashboardBody(),
+          _loadedTabs.contains(1) ? const GamificationScreen() : const SizedBox.shrink(),
+          _loadedTabs.contains(2) ? const EducationScreen() : const SizedBox.shrink(),
+          _loadedTabs.contains(3) ? const SettingsScreen() : const SizedBox.shrink(),
         ],
       ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _currentIndex,
-        onDestinationSelected: (index) => setState(() => _currentIndex = index),
+        onDestinationSelected: (index) {
+          setState(() {
+            _currentIndex = index;
+            _loadedTabs.add(index);
+          });
+        },
         destinations: const [
           NavigationDestination(
             icon: Icon(Icons.home_outlined),
             selectedIcon: Icon(Icons.home),
             label: 'Dashboard',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.emoji_events_outlined),
+            selectedIcon: Icon(Icons.emoji_events),
+            label: 'Komunitas',
           ),
           NavigationDestination(
             icon: Icon(Icons.auto_stories_outlined),
@@ -56,6 +74,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 }
 
+
 class DashboardBody extends ConsumerStatefulWidget {
   const DashboardBody({super.key});
 
@@ -63,23 +82,26 @@ class DashboardBody extends ConsumerStatefulWidget {
   ConsumerState<DashboardBody> createState() => _DashboardBodyState();
 }
 
-class _DashboardBodyState extends ConsumerState<DashboardBody> {
+class _DashboardBodyState extends ConsumerState<DashboardBody> with WidgetsBindingObserver {
   Timer? _countdownTimer;
   StreamSubscription? _blockEventSub;
   List<LockEntry> _activeLocks = [];
   List<QuotaEntry> _quotas = [];
   int _hoursSaved = 0;
   int _streakDays = 0;
+  bool _isWarningDialogShowing = false;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _initData();
-    _startCountdownTimer();
     
     final nativeBridge = ref.read(nativeBridgeServiceProvider);
     _blockEventSub = nativeBridge.appBlockedEvents.listen((event) async {
-      if (event.startsWith('EMERGENCY_TICKET_USED:')) {
+      if (event == 'ADMIN_DISABLE_REQUESTED' || event == 'FORCED_UNINSTALL_ATTEMPT') {
+        _showAdminDisableWarningDialog();
+      } else if (event.startsWith('EMERGENCY_TICKET_USED:')) {
         final parts = event.split(':');
         if (parts.length >= 3) {
           final quotaId = parts[1];
@@ -88,18 +110,232 @@ class _DashboardBodyState extends ConsumerState<DashboardBody> {
           await storage.useEmergencyTicket(quotaId, durationMinutes);
           _initData();
         }
+      } else if (event.startsWith('QUOTA_USAGE:')) {
+        final parts = event.split(':');
+        if (parts.length >= 3) {
+          final packageName = parts[1];
+          final seconds = int.tryParse(parts[2]) ?? 0;
+          final storage = ref.read(storageServiceProvider);
+          await storage.addQuotaUsage(packageName, seconds);
+          _initData();
+        }
+      } else if (event.startsWith('FORCED_OPEN:') || event.startsWith('BLOCKED:') || event.startsWith('ATTEMPT:')) {
+        final packageName = event.split(':').last.trim();
+        try {
+          final api = ref.read(apiServiceProvider);
+          if (await api.isLoggedIn()) {
+            await api.reportForcedOpen(packageName);
+          }
+        } catch (_) {}
+      } else if (event.isNotEmpty && event.contains('.')) {
+        // APP_BLOCKED_EVENT dari native: event == packageName plain (mis. com.sudoku.game)
+        final packageName = event.trim();
+        try {
+          final api = ref.read(apiServiceProvider);
+          if (await api.isLoggedIn()) {
+            // reportForcedOpen backend menangani forced_opens user + challenge_forced_opens sekaligus secara atomic
+            await api.reportForcedOpen(packageName);
+          }
+        } catch (_) {}
       }
     });
+  }
+
+  void _showAdminDisableWarningDialog() {
+    if (!mounted || _isWarningDialogShowing) return;
+    _isWarningDialogShowing = true;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        return Container(
+          decoration: const BoxDecoration(
+            color: Color(0xFFF5F0E8),
+            borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+          ),
+          padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Top drag handle
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey[400],
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(height: 24),
+
+              // Shield Icon Avatar
+              Container(
+                width: 76,
+                height: 76,
+                decoration: BoxDecoration(
+                  color: Colors.red[50],
+                  shape: BoxShape.circle,
+                  border: Border.all(color: Colors.red[200]!, width: 2),
+                ),
+                child: const Center(
+                  child: Text('🛡️', style: TextStyle(fontSize: 38)),
+                ),
+              ),
+              const SizedBox(height: 18),
+
+              // Badge
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.red[100],
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: const Text(
+                  'PROTEKSI BODYGUARD AKTIF',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.redAccent,
+                    letterSpacing: 0.8,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+
+              // Title
+              const Text(
+                'Upaya Penonaktifan Terdeteksi',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF2D2D2D),
+                ),
+              ),
+              const SizedBox(height: 12),
+
+              // Explanation
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.04),
+                      blurRadius: 10,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
+                child: Text(
+                  'Kamu baru saja mencoba menonaktifkan izin Administrator Perangkat dari pengaturan Android.\n\n'
+                  'Mode Bodyguard dirancang untuk melindungimu dari keputusan impulsif saat dorongan kecanduan sedang kuat. '
+                  'Jika kamu benar-benar ingin menonaktifkan Jeda secara sadar, silakan gunakan prosedur resmi melalui menu Pengaturan Jeda.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 13.5,
+                    color: Colors.grey[800],
+                    height: 1.45,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 24),
+
+              // Primary CTA (Stay Focused)
+              SizedBox(
+                width: double.infinity,
+                height: 52,
+                child: ElevatedButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF87A878),
+                    foregroundColor: Colors.white,
+                    elevation: 0,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                  ),
+                  child: const Text(
+                    'Saya Mengerti & Tetap Fokus 🌿',
+                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+
+              // Secondary CTA (Go to official uninstall flow)
+              SizedBox(
+                width: double.infinity,
+                height: 48,
+                child: TextButton(
+                  onPressed: () {
+                    Navigator.pop(ctx);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const UninstallFrictionScreen(),
+                      ),
+                    );
+                  },
+                  style: TextButton.styleFrom(
+                    foregroundColor: Colors.red[800],
+                  ),
+                  child: const Text(
+                    'Buka Prosedur Penonaktifan Resmi',
+                    style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    ).then((_) {
+      _isWarningDialogShowing = false;
+    });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _initData();
+    } else if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive) {
+      _countdownTimer?.cancel();
+      _countdownTimer = null;
+    }
   }
 
   Future<void> _initData() async {
     final storage = ref.read(storageServiceProvider);
     await storage.cleanExpiredLocks();
+
+    // Sync native quota usage
+    try {
+      final nativeBridge = ref.read(nativeBridgeServiceProvider);
+      final nativeUsage = await nativeBridge.getNativeQuotaUsage();
+      if (nativeUsage.isNotEmpty) {
+        await storage.syncNativeQuotaUsage(nativeUsage);
+      }
+    } catch (_) {}
     
     final active = await storage.getActiveLocks();
     final quotaList = await storage.getAllQuotas();
     final hours = await storage.getTotalHoursSaved();
-    final streak = await storage.getStreakDays();
+    int streak = await storage.getStreakDays();
+
+    final api = ref.read(apiServiceProvider);
+    if (await api.isLoggedIn()) {
+      try {
+        final profile = await api.getMe();
+        if (profile != null) {
+          streak = profile.currentStreakDays;
+          await storage.saveStreakDays(profile.currentStreakDays);
+        }
+      } catch (_) {}
+    }
 
     if (mounted) {
       setState(() {
@@ -108,26 +344,86 @@ class _DashboardBodyState extends ConsumerState<DashboardBody> {
         _hoursSaved = hours;
         _streakDays = streak;
       });
+      _updateCountdownTimer();
     }
 
+    // Sync locks to cloud backend if logged in
+    if (await api.isLoggedIn() && active.isNotEmpty) {
+      final lockDataList = active.map((l) => {
+        'id': l.id,
+        'package_name': l.packageName,
+        'app_name': l.appName,
+        'lock_type': l.isScheduled ? 'scheduled' : 'direct',
+        'start_time': l.startTime.toIso8601String(),
+        'duration_hours': l.durationHours,
+        'is_active': l.isActive,
+      }).toList();
+      api.syncLocks(lockDataList);
+    }
+
+    // Gabungkan rules lokal + aturan challenge aktif yang sudah diterima (hanya jika status=active)
     final rules = storage.getActiveRules();
+    try {
+      if (await api.isLoggedIn()) {
+        final myChallenges = await api.getMyChallenges();
+        for (final ch in myChallenges) {
+          // Hanya kunci aplikasi jika tantangan sudah aktif dan saya peserta aktif (bukan invited/declined/surrendered)
+          if (ch.status == 'active' && ch.myStatus != 'invited' && ch.myStatus != 'declined' && ch.myStatus != 'surrendered') {
+            final endMillis = ch.endTime?.millisecondsSinceEpoch ?? DateTime.now().add(Duration(hours: ch.durationHours)).millisecondsSinceEpoch;
+            // Hindari duplikasi jika sudah ada rule lokal untuk paket yang sama
+            final alreadyBlocked = rules.any((r) => r['packageName'] == ch.packageName);
+            if (!alreadyBlocked && DateTime.now().millisecondsSinceEpoch < endMillis) {
+              rules.add({
+                'packageName': ch.packageName,
+                'isScheduled': false,
+                'endTimeMillis': endMillis,
+                'isChallenge': true,
+                'challengeId': ch.id,
+              });
+            }
+          }
+        }
+      }
+    } catch (_) {}
+
     if (rules.isNotEmpty) {
-      ref.read(nativeBridgeServiceProvider).startMonitoring(rules);
+      await ref.read(nativeBridgeServiceProvider).startMonitoring(rules);
+      await ref.read(nativeBridgeServiceProvider).updateBlockedList(rules);
+    } else {
+      // Tidak ada aturan aktif, hentikan monitoring untuk hemat baterai
+      try { await ref.read(nativeBridgeServiceProvider).stopMonitoring(); } catch (_) {}
     }
   }
 
-  void _startCountdownTimer() {
-    _countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (mounted) {
-        setState(() {
-          // Trigger rebuild for countdowns
+  void _updateCountdownTimer() {
+    final hasActiveCountdowns = _activeLocks.any((l) => l.isActive && !l.isScheduled);
+    if (hasActiveCountdowns) {
+      if (_countdownTimer == null || !_countdownTimer!.isActive) {
+        _countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+          if (!mounted) {
+            timer.cancel();
+            _countdownTimer = null;
+            return;
+          }
+          final stillHasActive = _activeLocks.any((l) => l.isActive && !l.isScheduled);
+          if (!stillHasActive) {
+            timer.cancel();
+            _countdownTimer = null;
+          }
+          setState(() {
+            // Rebuild only when active countdown is ticking
+          });
         });
       }
-    });
+    } else {
+      _countdownTimer?.cancel();
+      _countdownTimer = null;
+    }
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _countdownTimer?.cancel();
     _blockEventSub?.cancel();
     super.dispose();
@@ -163,7 +459,13 @@ class _DashboardBodyState extends ConsumerState<DashboardBody> {
 
   String _formatSecondsToMinutes(int seconds) {
     final mins = seconds ~/ 60;
-    return "$mins m";
+    final secs = seconds % 60;
+    if (mins == 0) {
+      return "${secs}d";
+    } else if (secs == 0) {
+      return "$mins m";
+    }
+    return "$mins m ${secs}d";
   }
 
   void _showAddOptionModal() {
@@ -232,6 +534,9 @@ class _DashboardBodyState extends ConsumerState<DashboardBody> {
 
   @override
   Widget build(BuildContext context) {
+    final authState = ref.watch(authStateProvider);
+    final displayStreak = authState.value?.currentStreakDays ?? _streakDays;
+
     return Scaffold(
       backgroundColor: const Color(0xFFF5F0E8),
       appBar: AppBar(
@@ -277,7 +582,7 @@ class _DashboardBodyState extends ConsumerState<DashboardBody> {
                     child: Column(
                       children: [
                         Text(
-                          '$_streakDays hari',
+                          '$displayStreak hari',
                           style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Color(0xFF87A878)),
                         ),
                         const SizedBox(height: 4),

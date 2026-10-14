@@ -51,58 +51,61 @@ class AppMonitorService : Service() {
     }
 
     private fun startMonitoringLoop() {
-        val overlayManager = OverlayManager(this)
+        val overlayManager = OverlayManager.getInstance(this)
         var lastForegroundApp = ""
-        var quotaTrackingPackage = ""
-        var quotaTrackingSeconds = 0
 
         scope.launch {
             while (isActive) {
                 try {
-                    val foregroundApp = UsageStatsHelper.getForegroundApp(this@AppMonitorService)
+                    // If JedaAccessibilityService is active, it handles overlay and tracking with zero latency.
+                    if (JedaAccessibilityService.isServiceRunning) {
+                        delay(2000)
+                        continue
+                    }
 
-                    if (foregroundApp != null) {
-                        // 1. Quota usage tracking
-                        if (foregroundApp == quotaTrackingPackage) {
-                            quotaTrackingSeconds++
-                            if (quotaTrackingSeconds >= 5) {
-                                BlockRulesManager.incrementQuotaUsage(quotaTrackingPackage, quotaTrackingSeconds)
-                                quotaTrackingSeconds = 0
-                            }
-                        } else {
-                            if (quotaTrackingPackage.isNotEmpty() && quotaTrackingSeconds > 0) {
-                                BlockRulesManager.incrementQuotaUsage(quotaTrackingPackage, quotaTrackingSeconds)
-                            }
-                            quotaTrackingPackage = foregroundApp
-                            quotaTrackingSeconds = 0
-                        }
-
-                        // 2. Blocking logic
-                        if (foregroundApp == packageName) {
-                            // Don't block Jeda itself
-                            if (overlayManager.isShowing()) {
+                    if (overlayManager.isExitingBlockedApp(lastForegroundApp)) {
+                        if (overlayManager.isShowing()) {
+                            withContext(Dispatchers.Main) {
                                 overlayManager.hideOverlay()
                             }
-                        } else {
-                            val isBlocked = BlockRulesManager.isAppBlocked(foregroundApp, this@AppMonitorService)
-                            if (isBlocked) {
-                                if (!overlayManager.isShowing() && !overlayManager.isExitingBlockedApp(foregroundApp)) {
-                                    withContext(Dispatchers.Main) {
-                                        overlayManager.showOverlay(foregroundApp)
-                                    }
-                                    val intent = Intent("APP_BLOCKED_EVENT")
-                                    intent.putExtra("package_name", foregroundApp)
-                                    LocalBroadcastManager.getInstance(this@AppMonitorService).sendBroadcast(intent)
+                        }
+                        delay(1000)
+                        continue
+                    }
+
+                    val foregroundApp = UsageStatsHelper.getForegroundApp(this@AppMonitorService)
+
+                    if (foregroundApp != null && !LauncherHelper.isLauncherOrSystem(this@AppMonitorService, foregroundApp)) {
+                        // 1. Quota usage tracking (1 second per tick)
+                        BlockRulesManager.incrementQuotaUsage(foregroundApp, 1, this@AppMonitorService)
+
+                        // 2. Blocking logic
+                        val isBlocked = BlockRulesManager.isAppBlocked(foregroundApp, this@AppMonitorService)
+                        if (isBlocked) {
+                            if (!overlayManager.isShowing() && !overlayManager.isExitingBlockedApp(foregroundApp)) {
+                                withContext(Dispatchers.Main) {
+                                    overlayManager.showOverlay(foregroundApp)
                                 }
-                            } else {
-                                if (overlayManager.isShowing()) {
-                                    withContext(Dispatchers.Main) {
-                                        overlayManager.hideOverlay()
-                                    }
+                                val intent = Intent("APP_BLOCKED_EVENT")
+                                intent.putExtra("package_name", foregroundApp)
+                                LocalBroadcastManager.getInstance(this@AppMonitorService).sendBroadcast(intent)
+                            }
+                        } else {
+                            if (overlayManager.isShowing()) {
+                                withContext(Dispatchers.Main) {
+                                    overlayManager.hideOverlay()
                                 }
                             }
                         }
                         lastForegroundApp = foregroundApp
+                    } else {
+                        // User is in launcher, system UI, Jeda itself, or no app is active
+                        if (overlayManager.isShowing()) {
+                            withContext(Dispatchers.Main) {
+                                overlayManager.hideOverlay()
+                            }
+                        }
+                        lastForegroundApp = ""
                     }
                 } catch (e: Exception) {
                     e.printStackTrace()

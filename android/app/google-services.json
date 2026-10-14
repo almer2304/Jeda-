@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "1015775557122",
+    "project_id": "jeda-df021",
+    "storage_bucket": "jeda-df021.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1015775557122:android:707195a8a80efb2ec0991b",
+        "android_client_info": {
+          "package_name": "com.mindfullock.app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "1015775557122-4825cspl6a45dafruj4uj7doc4he03rj.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.mindfullock.app",
+            "certificate_hash": "29314b83f1e0acfda278623c540541e56c6cccdc"
+          }
+        },
+        {
+          "client_id": "1015775557122-mdb1logctrin8f1momqhcb0ida08ogeh.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDKo-hkyczIihCKjTEghdLBe8UcIeRQRPM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "1015775557122-mdb1logctrin8f1momqhcb0ida08ogeh.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

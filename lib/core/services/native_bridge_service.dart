@@ -120,6 +120,19 @@ class NativeBridgeService {
     }
   }
 
+  Future<Map<String, int>> getNativeQuotaUsage() async {
+    try {
+      final res = await _channel.invokeMethod<Map>('getNativeQuotaUsage');
+      if (res != null) {
+        return res.map((k, v) => MapEntry(k.toString(), (v as num).toInt()));
+      }
+      return {};
+    } catch (e) {
+      print("Failed to get native quota usage: $e");
+      return {};
+    }
+  }
+
   Stream<String> get appBlockedEvents {
     return _eventChannel.receiveBroadcastStream().map((dynamic event) => event.toString());
   }

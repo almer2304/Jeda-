@@ -5,7 +5,7 @@ import 'core/models/lock_entry.dart';
 import 'core/models/blocked_domain.dart';
 import 'core/models/quota_entry.dart';
 import 'core/services/storage_service.dart';
-import 'features/onboarding/permission_onboarding_screen.dart';
+import 'features/onboarding/feature_walkthrough_screen.dart';
 import 'features/dashboard/dashboard_screen.dart';
 
 void main() async {
@@ -54,7 +54,7 @@ class JedaApp extends StatelessWidget {
       ),
       home: storageService.isOnboardingDone()
           ? const DashboardScreen()
-          : const PermissionOnboardingScreen(),
+          : const FeatureWalkthroughScreen(),
     );
   }
 }
