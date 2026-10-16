@@ -1,10 +1,20 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:intl/intl.dart';
 import '../../core/services/native_bridge_service.dart';
 import '../../core/services/storage_service.dart';
 import '../../core/models/lock_entry.dart';
 import '../../core/models/quota_entry.dart';
+import '../../core/theme/jeda_colors.dart';
+import '../../core/theme/jeda_radii.dart';
+import '../../core/theme/jeda_spacing.dart';
+import '../../core/theme/jeda_typography.dart';
+import '../../core/widgets/app_icon_widget.dart';
+import '../../core/widgets/jeda_badge.dart';
+import '../../core/widgets/jeda_bottom_sheet.dart';
+import '../../core/widgets/jeda_button.dart';
+import '../../core/widgets/jeda_card.dart';
 import '../lock_manager/add_lock_screen.dart';
 import '../lock_manager/add_quota_screen.dart';
 import '../education/education_screen.dart';
@@ -13,8 +23,6 @@ import '../settings/uninstall_friction_screen.dart';
 import '../gamification/gamification_screen.dart';
 import '../../core/services/api_service.dart';
 import '../../core/providers/auth_provider.dart';
-
-
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -51,16 +59,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
           NavigationDestination(
             icon: Icon(Icons.home_outlined),
             selectedIcon: Icon(Icons.home),
-            label: 'Dashboard',
+            label: 'Beranda',
           ),
           NavigationDestination(
-            icon: Icon(Icons.emoji_events_outlined),
-            selectedIcon: Icon(Icons.emoji_events),
+            icon: Icon(Icons.people_outline),
+            selectedIcon: Icon(Icons.people),
             label: 'Komunitas',
           ),
           NavigationDestination(
-            icon: Icon(Icons.auto_stories_outlined),
-            selectedIcon: Icon(Icons.auto_stories),
+            icon: Icon(Icons.menu_book_outlined),
+            selectedIcon: Icon(Icons.menu_book),
             label: 'Edukasi',
           ),
           NavigationDestination(
@@ -73,7 +81,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 }
-
 
 class DashboardBody extends ConsumerStatefulWidget {
   const DashboardBody({super.key});
@@ -95,6 +102,7 @@ class _DashboardBodyState extends ConsumerState<DashboardBody> with WidgetsBindi
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _loadLocalDataSync();
     _initData();
     
     final nativeBridge = ref.read(nativeBridgeServiceProvider);
@@ -121,24 +129,31 @@ class _DashboardBodyState extends ConsumerState<DashboardBody> with WidgetsBindi
         }
       } else if (event.startsWith('FORCED_OPEN:') || event.startsWith('BLOCKED:') || event.startsWith('ATTEMPT:')) {
         final packageName = event.split(':').last.trim();
-        try {
-          final api = ref.read(apiServiceProvider);
-          if (await api.isLoggedIn()) {
-            await api.reportForcedOpen(packageName);
-          }
-        } catch (_) {}
+        await _handleBlockedAppAttempt(packageName);
       } else if (event.isNotEmpty && event.contains('.')) {
-        // APP_BLOCKED_EVENT dari native: event == packageName plain (mis. com.sudoku.game)
         final packageName = event.trim();
-        try {
-          final api = ref.read(apiServiceProvider);
-          if (await api.isLoggedIn()) {
-            // reportForcedOpen backend menangani forced_opens user + challenge_forced_opens sekaligus secara atomic
-            await api.reportForcedOpen(packageName);
-          }
-        } catch (_) {}
+        await _handleBlockedAppAttempt(packageName);
       }
     });
+  }
+
+  Future<void> _handleBlockedAppAttempt(String packageName) async {
+    try {
+      final api = ref.read(apiServiceProvider);
+      if (await api.isLoggedIn()) {
+        final res = await api.reportForcedOpen(packageName);
+        if (res['tolerance_exceeded'] == true) {
+          final storage = ref.read(storageServiceProvider);
+          await storage.saveStreakDays(0);
+          if (mounted) {
+            setState(() {
+              _streakDays = 0;
+            });
+          }
+          await ref.read(authStateProvider.notifier).refreshProfile();
+        }
+      }
+    } catch (_) {}
   }
 
   void _showAdminDisableWarningDialog() {
@@ -148,129 +163,64 @@ class _DashboardBodyState extends ConsumerState<DashboardBody> with WidgetsBindi
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      backgroundColor: Colors.transparent,
+      backgroundColor: JedaColors.surface,
+      shape: const RoundedRectangleBorder(borderRadius: JedaRadii.sheetTop),
       builder: (ctx) {
-        return Container(
-          decoration: const BoxDecoration(
-            color: Color(0xFFF5F0E8),
-            borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-          ),
-          padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // Top drag handle
-              Container(
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: Colors.grey[400],
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-              const SizedBox(height: 24),
-
-              // Shield Icon Avatar
-              Container(
-                width: 76,
-                height: 76,
-                decoration: BoxDecoration(
-                  color: Colors.red[50],
-                  shape: BoxShape.circle,
-                  border: Border.all(color: Colors.red[200]!, width: 2),
-                ),
-                child: const Center(
-                  child: Text('🛡️', style: TextStyle(fontSize: 38)),
-                ),
-              ),
-              const SizedBox(height: 18),
-
-              // Badge
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                decoration: BoxDecoration(
-                  color: Colors.red[100],
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: const Text(
-                  'PROTEKSI BODYGUARD AKTIF',
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.redAccent,
-                    letterSpacing: 0.8,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
-
-              // Title
-              const Text(
-                'Upaya Penonaktifan Terdeteksi',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFF2D2D2D),
-                ),
-              ),
-              const SizedBox(height: 12),
-
-              // Explanation
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(16),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.04),
-                      blurRadius: 10,
-                      offset: const Offset(0, 2),
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 36,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: JedaColors.border,
+                      borderRadius: BorderRadius.circular(2),
                     ),
-                  ],
-                ),
-                child: Text(
-                  'Kamu baru saja mencoba menonaktifkan izin Administrator Perangkat dari pengaturan Android.\n\n'
-                  'Mode Bodyguard dirancang untuk melindungimu dari keputusan impulsif saat dorongan kecanduan sedang kuat. '
-                  'Jika kamu benar-benar ingin menonaktifkan Jeda secara sadar, silakan gunakan prosedur resmi melalui menu Pengaturan Jeda.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 13.5,
-                    color: Colors.grey[800],
-                    height: 1.45,
                   ),
                 ),
-              ),
-              const SizedBox(height: 24),
-
-              // Primary CTA (Stay Focused)
-              SizedBox(
-                width: double.infinity,
-                height: 52,
-                child: ElevatedButton(
+                const SizedBox(height: 20),
+                const JedaBadge(
+                  label: 'Proteksi Bodyguard Aktif',
+                  variant: JedaBadgeVariant.warning,
+                  icon: Icons.shield_outlined,
+                ),
+                const SizedBox(height: 12),
+                const Text(
+                  'Upaya Penonaktifan Dicegah',
+                  style: JedaTypography.heading2,
+                ),
+                const SizedBox(height: 12),
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: JedaColors.surfaceSecondary,
+                    borderRadius: JedaRadii.borderR12,
+                    border: Border.all(color: JedaColors.border),
+                  ),
+                  child: Text(
+                    'Anda baru saja mencoba mencabut izin Administrator Perangkat dari Setelan Android.\n\n'
+                    'Mode Bodyguard bertugas menghentikan refleks impulsif saat dorongan membuka aplikasi sangat kuat. '
+                    'Bila Anda ingin mencopot Jeda secara sadar dan resmi, gunakan menu Pengaturan di dalam aplikasi Jeda.',
+                    style: JedaTypography.bodySecondary.copyWith(
+                      color: JedaColors.textPrimary,
+                      height: 1.5,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 24),
+                JedaButton(
+                  label: 'Saya Mengerti & Kembali Fokus',
                   onPressed: () => Navigator.pop(ctx),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF87A878),
-                    foregroundColor: Colors.white,
-                    elevation: 0,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                  ),
-                  child: const Text(
-                    'Saya Mengerti & Tetap Fokus 🌿',
-                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
-                  ),
+                  variant: JedaButtonVariant.primary,
                 ),
-              ),
-              const SizedBox(height: 10),
-
-              // Secondary CTA (Go to official uninstall flow)
-              SizedBox(
-                width: double.infinity,
-                height: 48,
-                child: TextButton(
+                const SizedBox(height: 10),
+                JedaButton(
+                  label: 'Buka Prosedur Pencopotan Resmi',
                   onPressed: () {
                     Navigator.pop(ctx);
                     Navigator.push(
@@ -280,16 +230,10 @@ class _DashboardBodyState extends ConsumerState<DashboardBody> with WidgetsBindi
                       ),
                     );
                   },
-                  style: TextButton.styleFrom(
-                    foregroundColor: Colors.red[800],
-                  ),
-                  child: const Text(
-                    'Buka Prosedur Penonaktifan Resmi',
-                    style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w600),
-                  ),
+                  variant: JedaButtonVariant.ghost,
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         );
       },
@@ -308,11 +252,18 @@ class _DashboardBodyState extends ConsumerState<DashboardBody> with WidgetsBindi
     }
   }
 
+  void _loadLocalDataSync() {
+    final storage = ref.read(storageServiceProvider);
+    _activeLocks = storage.getActiveLocksSync();
+    _quotas = storage.getAllQuotasSync();
+    _hoursSaved = storage.getTotalHoursSavedSync();
+    _streakDays = storage.getStreakDaysSync();
+  }
+
   Future<void> _initData() async {
     final storage = ref.read(storageServiceProvider);
     await storage.cleanExpiredLocks();
 
-    // Sync native quota usage
     try {
       final nativeBridge = ref.read(nativeBridgeServiceProvider);
       final nativeUsage = await nativeBridge.getNativeQuotaUsage();
@@ -326,17 +277,7 @@ class _DashboardBodyState extends ConsumerState<DashboardBody> with WidgetsBindi
     final hours = await storage.getTotalHoursSaved();
     int streak = await storage.getStreakDays();
 
-    final api = ref.read(apiServiceProvider);
-    if (await api.isLoggedIn()) {
-      try {
-        final profile = await api.getMe();
-        if (profile != null) {
-          streak = profile.currentStreakDays;
-          await storage.saveStreakDays(profile.currentStreakDays);
-        }
-      } catch (_) {}
-    }
-
+    // Update UI immediately with fresh local storage data (Frame 0/1)
     if (mounted) {
       setState(() {
         _activeLocks = active;
@@ -347,7 +288,30 @@ class _DashboardBodyState extends ConsumerState<DashboardBody> with WidgetsBindi
       _updateCountdownTimer();
     }
 
-    // Sync locks to cloud backend if logged in
+    // Immediately sync local rules to Android Native so blocking never waits on network latency
+    final rules = storage.getActiveRules();
+    if (rules.isNotEmpty) {
+      await ref.read(nativeBridgeServiceProvider).startMonitoring(rules);
+      await ref.read(nativeBridgeServiceProvider).updateBlockedList(rules);
+    }
+
+    // Remote sync in background without blocking local UI presentation
+    final api = ref.read(apiServiceProvider);
+    if (await api.isLoggedIn()) {
+      try {
+        final profile = await api.getMe();
+        if (profile != null && profile.currentStreakDays != streak) {
+          streak = profile.currentStreakDays;
+          await storage.saveStreakDays(profile.currentStreakDays);
+          if (mounted) {
+            setState(() {
+              _streakDays = streak;
+            });
+          }
+        }
+      } catch (_) {}
+    }
+
     if (await api.isLoggedIn() && active.isNotEmpty) {
       final lockDataList = active.map((l) => {
         'id': l.id,
@@ -361,16 +325,13 @@ class _DashboardBodyState extends ConsumerState<DashboardBody> with WidgetsBindi
       api.syncLocks(lockDataList);
     }
 
-    // Gabungkan rules lokal + aturan challenge aktif yang sudah diterima (hanya jika status=active)
-    final rules = storage.getActiveRules();
+    bool addedChallengeRules = false;
     try {
       if (await api.isLoggedIn()) {
         final myChallenges = await api.getMyChallenges();
         for (final ch in myChallenges) {
-          // Hanya kunci aplikasi jika tantangan sudah aktif dan saya peserta aktif (bukan invited/declined/surrendered)
           if (ch.status == 'active' && ch.myStatus != 'invited' && ch.myStatus != 'declined' && ch.myStatus != 'surrendered') {
             final endMillis = ch.endTime?.millisecondsSinceEpoch ?? DateTime.now().add(Duration(hours: ch.durationHours)).millisecondsSinceEpoch;
-            // Hindari duplikasi jika sudah ada rule lokal untuk paket yang sama
             final alreadyBlocked = rules.any((r) => r['packageName'] == ch.packageName);
             if (!alreadyBlocked && DateTime.now().millisecondsSinceEpoch < endMillis) {
               rules.add({
@@ -380,6 +341,7 @@ class _DashboardBodyState extends ConsumerState<DashboardBody> with WidgetsBindi
                 'isChallenge': true,
                 'challengeId': ch.id,
               });
+              addedChallengeRules = true;
             }
           }
         }
@@ -387,10 +349,11 @@ class _DashboardBodyState extends ConsumerState<DashboardBody> with WidgetsBindi
     } catch (_) {}
 
     if (rules.isNotEmpty) {
-      await ref.read(nativeBridgeServiceProvider).startMonitoring(rules);
-      await ref.read(nativeBridgeServiceProvider).updateBlockedList(rules);
+      if (addedChallengeRules) {
+        await ref.read(nativeBridgeServiceProvider).startMonitoring(rules);
+        await ref.read(nativeBridgeServiceProvider).updateBlockedList(rules);
+      }
     } else {
-      // Tidak ada aturan aktif, hentikan monitoring untuk hemat baterai
       try { await ref.read(nativeBridgeServiceProvider).stopMonitoring(); } catch (_) {}
     }
   }
@@ -410,9 +373,7 @@ class _DashboardBodyState extends ConsumerState<DashboardBody> with WidgetsBindi
             timer.cancel();
             _countdownTimer = null;
           }
-          setState(() {
-            // Rebuild only when active countdown is ticking
-          });
+          setState(() {});
         });
       }
     } else {
@@ -431,98 +392,546 @@ class _DashboardBodyState extends ConsumerState<DashboardBody> with WidgetsBindi
 
   String _formatDuration(Duration duration) {
     if (duration.isNegative) return "00:00:00";
-    
     if (duration.inDays > 0) {
-      int totalDays = duration.inDays;
-      int years = totalDays ~/ 365;
-      int remainingDays = totalDays % 365;
-      int months = remainingDays ~/ 30;
-      remainingDays = remainingDays % 30;
-      int weeks = remainingDays ~/ 7;
-      int days = remainingDays % 7;
-      
-      List<String> parts = [];
-      if (years > 0) parts.add("$years tahun");
-      if (months > 0) parts.add("$months bulan");
-      if (weeks > 0) parts.add("$weeks minggu");
-      if (days > 0) parts.add("$days hari");
-      
-      if (parts.isEmpty) return "Kurang dari 1 hari";
-      return parts.take(2).join(" ");
-    }
+      int remainingDays = duration.inDays;
+      final months = remainingDays ~/ 30;
+      remainingDays %= 30;
+      final weeks = remainingDays ~/ 7;
+      final days = remainingDays % 7;
+      final hours = duration.inHours.remainder(24);
 
+      final parts = <String>[];
+      if (months > 0) parts.add("$months bln");
+      if (weeks > 0) parts.add("$weeks mgg");
+      if (days > 0) parts.add("$days hr");
+      if (hours > 0 && months == 0) parts.add("$hours jam");
+      return parts.isEmpty ? "0 jam" : parts.join(" ");
+    }
     String twoDigits(int n) => n.toString().padLeft(2, "0");
-    String twoDigitMinutes = twoDigits(duration.inMinutes.remainder(60));
-    String twoDigitSeconds = twoDigits(duration.inSeconds.remainder(60));
-    return "${twoDigits(duration.inHours)}:$twoDigitMinutes:$twoDigitSeconds";
+    return "${twoDigits(duration.inHours)}:${twoDigits(duration.inMinutes.remainder(60))}:${twoDigits(duration.inSeconds.remainder(60))}";
+  }
+
+  String _formatTotalDetoxHours(int totalHours) {
+    int remaining = totalHours;
+    final months = remaining ~/ (30 * 24);
+    remaining %= (30 * 24);
+    final weeks = remaining ~/ (7 * 24);
+    remaining %= (7 * 24);
+    final days = remaining ~/ 24;
+    final hours = remaining % 24;
+
+    final parts = <String>[];
+    if (months > 0) parts.add('$months Bulan');
+    if (weeks > 0) parts.add('$weeks Minggu');
+    if (days > 0) parts.add('$days Hari');
+    if (hours > 0) parts.add('$hours Jam');
+    if (parts.isEmpty) return '$totalHours Jam';
+    return parts.join(' ');
   }
 
   String _formatSecondsToMinutes(int seconds) {
     final mins = seconds ~/ 60;
-    final secs = seconds % 60;
-    if (mins == 0) {
-      return "${secs}d";
-    } else if (secs == 0) {
-      return "$mins m";
-    }
-    return "$mins m ${secs}d";
+    return "$mins mnt";
   }
 
   void _showAddOptionModal() {
+    JedaBottomSheet.show(
+      context: context,
+      title: 'Pilih Mode Pembatasan',
+      subtitle: 'Tentukan bagaimana Anda ingin mengelola waktu layar hari ini.',
+      child: Column(
+        children: [
+          _buildModeOptionTile(
+            title: 'Kuota Harian (Budget Waktu)',
+            desc: 'Bebas membuka aplikasi terpilih sampai jatah menit harian tercapai.',
+            icon: Icons.timelapse_outlined,
+            onTap: () async {
+              Navigator.pop(context);
+              await Navigator.of(context).push(
+                MaterialPageRoute(builder: (context) => const AddQuotaScreen()),
+              );
+              _initData();
+            },
+          ),
+          const SizedBox(height: 12),
+          _buildModeOptionTile(
+            title: 'Detoks Penuh & Jadwal Rutin',
+            desc: 'Kunci langsung dengan durasi penuh atau jadwalkan di jam-jam tertentu.',
+            icon: Icons.shield_outlined,
+            onTap: () async {
+              Navigator.pop(context);
+              await Navigator.of(context).push(
+                MaterialPageRoute(builder: (context) => const AddLockScreen()),
+              );
+              _initData();
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildModeOptionTile({
+    required String title,
+    required String desc,
+    required IconData icon,
+    required VoidCallback onTap,
+  }) {
+    return JedaCard(
+      onTap: onTap,
+      padding: const EdgeInsets.all(16),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 44,
+            height: 44,
+            decoration: const BoxDecoration(
+              color: JedaColors.primarySoft,
+              borderRadius: JedaRadii.borderR12,
+            ),
+            child: Icon(icon, color: JedaColors.primaryDark, size: 22),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: JedaTypography.labelBold),
+                const SizedBox(height: 4),
+                Text(desc, style: JedaTypography.caption.copyWith(color: JedaColors.textSecondary, height: 1.35)),
+              ],
+            ),
+          ),
+          const Icon(Icons.chevron_right, color: JedaColors.textTertiary, size: 20),
+        ],
+      ),
+    );
+  }
+
+  String _formatDaysToText(List<int> days) {
+    if (days.isEmpty) return 'Tidak ada hari dipilih';
+    final sorted = List<int>.from(days)..sort();
+    if (sorted.length == 7) return 'Setiap Hari';
+    if (sorted.length == 5 && sorted.every((d) => d >= 1 && d <= 5)) {
+      return 'Senin - Jumat (Hari Kerja)';
+    }
+    if (sorted.length == 2 && sorted.contains(6) && sorted.contains(7)) {
+      return 'Sabtu - Minggu (Akhir Pekan)';
+    }
+    const dayMap = {
+      1: 'Senin',
+      2: 'Selasa',
+      3: 'Rabu',
+      4: 'Kamis',
+      5: 'Jumat',
+      6: 'Sabtu',
+      7: 'Minggu',
+    };
+    return sorted.map((d) => dayMap[d] ?? '$d').join(', ');
+  }
+
+  Widget _buildDetailRow({
+    required String label,
+    required String value,
+    required IconData icon,
+    Color? valueColor,
+    bool isBold = false,
+  }) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Expanded(
+          child: Row(
+            children: [
+              Icon(icon, size: 16, color: JedaColors.textSecondary),
+              const SizedBox(width: 8),
+              Flexible(
+                child: Text(
+                  label,
+                  style: JedaTypography.bodySecondary,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(width: 8),
+        Flexible(
+          child: Text(
+            value,
+            textAlign: TextAlign.end,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: isBold
+                ? JedaTypography.labelBold.copyWith(color: valueColor ?? JedaColors.textPrimary)
+                : JedaTypography.body.copyWith(color: valueColor ?? JedaColors.textPrimary),
+          ),
+        ),
+      ],
+    );
+  }
+
+  String _formatDeletionCooldown(Duration d) {
+    final days = d.inDays;
+    final hours = d.inHours % 24;
+    final mins = d.inMinutes % 60;
+    if (days > 0) {
+      return '$days Hari $hours Jam';
+    }
+    if (hours > 0) {
+      return '$hours Jam $mins Menit';
+    }
+    return '${mins.clamp(1, 59)} Menit';
+  }
+
+  Widget _buildPsychologicalGoalSection({
+    required String? focusGoal,
+    required String? description,
+    required VoidCallback onEditTap,
+  }) {
+    final hasGoal = focusGoal != null && focusGoal.trim().isNotEmpty;
+    final hasDesc = description != null && description.trim().isNotEmpty;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: JedaColors.primarySoft.withValues(alpha: 0.55),
+        borderRadius: JedaRadii.borderR12,
+        border: Border.all(color: JedaColors.primary.withValues(alpha: 0.45)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.psychology_outlined, size: 18, color: JedaColors.primaryDark),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Jangkar Psikologis & Tujuan Fokus',
+                  style: JedaTypography.caption.copyWith(
+                    color: JedaColors.primaryDark,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              InkWell(
+                onTap: onEditTap,
+                borderRadius: JedaRadii.borderR8,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  child: Text(
+                    'Ubah',
+                    style: JedaTypography.caption.copyWith(
+                      color: JedaColors.primaryDark,
+                      fontWeight: FontWeight.w700,
+                      decoration: TextDecoration.underline,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            hasGoal ? '🎯 ${focusGoal.trim()}' : '🎯 Menjaga kendali diri & ketenangan pikiran',
+            style: JedaTypography.labelBold.copyWith(color: JedaColors.textPrimary),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            hasDesc
+                ? '“${description.trim()}”'
+                : '“Setiap kali kamu menahan impuls membuka aplikasi ini, kamu sedang memperkuat otot fokus dan ketenangan pikiranmu.”',
+            style: JedaTypography.caption.copyWith(
+              color: JedaColors.textSecondary,
+              fontStyle: FontStyle.italic,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _openEditLock(LockEntry lock, BuildContext sheetCtx) async {
+    if (sheetCtx.mounted) {
+      Navigator.pop(sheetCtx);
+    }
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => AddLockScreen(editingLock: lock),
+      ),
+    );
+    _initData();
+  }
+
+  Future<void> _openEditQuota(QuotaEntry quota, BuildContext sheetCtx) async {
+    if (sheetCtx.mounted) {
+      Navigator.pop(sheetCtx);
+    }
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => AddQuotaScreen(editingQuota: quota),
+      ),
+    );
+    _initData();
+  }
+
+  void _showLockDetailModal(LockEntry lock) {
+    final isScheduled = lock.isScheduled;
+    final isCurrentlyBlocking = lock.isCurrentlyBlocking;
+    final intervals = lock.allIntervals;
+    final storage = ref.read(storageServiceProvider);
+    final canDeleteNow = storage.canDeleteLockNow();
+    final remainingCooldown = storage.getRemainingDeletionCooldown();
+
     showModalBottomSheet(
       context: context,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      builder: (context) {
+      isScrollControlled: true,
+      backgroundColor: JedaColors.surface,
+      shape: const RoundedRectangleBorder(borderRadius: JedaRadii.sheetTop),
+      builder: (ctx) {
         return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.all(20.0),
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(24, 12, 24, 28),
             child: Column(
               mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Container(
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: Colors.grey[300],
-                    borderRadius: BorderRadius.circular(2),
+                Center(
+                  child: Container(
+                    width: 36,
+                    height: 4,
+                    margin: const EdgeInsets.only(bottom: 20),
+                    decoration: BoxDecoration(
+                      color: JedaColors.border,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
                   ),
+                ),
+                Row(
+                  children: [
+                    AppIconWidget(
+                      packageName: lock.packageName,
+                      size: 54,
+                      borderRadius: JedaRadii.borderR16,
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            lock.appName,
+                            style: JedaTypography.heading3.copyWith(fontSize: 18),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            lock.packageName,
+                            style: JedaTypography.caption.copyWith(color: JedaColors.textTertiary),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: () => _openEditLock(lock, ctx),
+                      icon: const Icon(Icons.edit_outlined, color: JedaColors.primaryDark),
+                      tooltip: 'Edit Penguncian',
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    JedaBadge(
+                      label: isScheduled ? 'Jadwal Jam (1–24)' : 'Detoks Penuh',
+                      variant: JedaBadgeVariant.neutral,
+                      icon: isScheduled ? Icons.calendar_today_outlined : Icons.timer_outlined,
+                    ),
+                    if (isScheduled)
+                      JedaBadge(
+                        label: isCurrentlyBlocking ? 'Aktif Memblokir Sekarang' : 'Di Luar Jam Jadwal',
+                        variant: isCurrentlyBlocking ? JedaBadgeVariant.success : JedaBadgeVariant.neutral,
+                        icon: isCurrentlyBlocking ? Icons.lock_outline : Icons.schedule_outlined,
+                      )
+                    else
+                      JedaBadge(
+                        label: !lock.isExpired ? 'Fokus Berjalan' : 'Selesai',
+                        variant: !lock.isExpired ? JedaBadgeVariant.success : JedaBadgeVariant.neutral,
+                        icon: !lock.isExpired ? Icons.lock_outline : Icons.check_circle_outline,
+                      ),
+                  ],
                 ),
                 const SizedBox(height: 16),
-                const Text('Pilih Mode Fokus 🌱', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                const SizedBox(height: 20),
-                ListTile(
-                  leading: const CircleAvatar(
-                    backgroundColor: Color(0xFFEAF2E8),
-                    child: Icon(Icons.timer_outlined, color: Color(0xFF87A878)),
-                  ),
-                  title: const Text('Kuota Harian (Budget Waktu)', style: TextStyle(fontWeight: FontWeight.bold)),
-                  subtitle: const Text('Bebas buka aplikasi sampai jatah menit harian habis.'),
-                  onTap: () async {
-                    Navigator.pop(context);
-                    await Navigator.of(context).push(
-                      MaterialPageRoute(builder: (context) => const AddQuotaScreen()),
-                    );
-                    _initData();
-                  },
+
+                // Psychological Goal & Reflection Note Section
+                _buildPsychologicalGoalSection(
+                  focusGoal: lock.focusGoal,
+                  description: lock.description,
+                  onEditTap: () => _openEditLock(lock, ctx),
                 ),
-                const Divider(),
-                ListTile(
-                  leading: const CircleAvatar(
-                    backgroundColor: Color(0xFFEAF2E8),
-                    child: Icon(Icons.lock_clock_outlined, color: Color(0xFF87A878)),
+
+                const SizedBox(height: 16),
+                if (!isScheduled) ...[
+                  JedaCard(
+                    backgroundColor: JedaColors.surfaceSecondary,
+                    borderColor: JedaColors.border,
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      children: [
+                        _buildDetailRow(
+                          label: 'Total Durasi Fokus',
+                          value: _formatTotalDetoxHours(lock.durationHours),
+                          icon: Icons.hourglass_top_outlined,
+                        ),
+                        const Divider(height: 20, color: JedaColors.border),
+                        _buildDetailRow(
+                          label: 'Dimulai Pada',
+                          value: DateFormat('d MMM yyyy, HH:mm').format(lock.startTime),
+                          icon: Icons.play_circle_outline,
+                        ),
+                        const Divider(height: 20, color: JedaColors.border),
+                        _buildDetailRow(
+                          label: 'Berakhir Pada',
+                          value: DateFormat('d MMM yyyy, HH:mm').format(lock.endTime),
+                          icon: Icons.flag_outlined,
+                        ),
+                        const Divider(height: 20, color: JedaColors.border),
+                        _buildDetailRow(
+                          label: 'Sisa Waktu',
+                          value: _formatDuration(lock.remaining),
+                          icon: Icons.alarm,
+                          valueColor: JedaColors.primaryDark,
+                          isBold: true,
+                        ),
+                      ],
+                    ),
                   ),
-                  title: const Text('Kunci Penuh / Jadwal Rutin', style: TextStyle(fontWeight: FontWeight.bold)),
-                  subtitle: const Text('Kunci aplikasi langsung dengan durasi atau jam tertentu.'),
-                  onTap: () async {
-                    Navigator.pop(context);
-                    await Navigator.of(context).push(
-                      MaterialPageRoute(builder: (context) => const AddLockScreen()),
-                    );
-                    _initData();
-                  },
+                ] else ...[
+                  Text(
+                    'Rincian Interval Jadwal (${intervals.length})',
+                    style: JedaTypography.labelBold,
+                  ),
+                  const SizedBox(height: 10),
+                  ListView.separated(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    itemCount: intervals.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 8),
+                    itemBuilder: (context, idx) {
+                      final interval = intervals[idx];
+                      final isIntervalActive = interval.isCurrentlyActive();
+                      final dayNames = _formatDaysToText(interval.days);
+
+                      return Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                        decoration: BoxDecoration(
+                          color: isIntervalActive ? JedaColors.primarySoft : JedaColors.surfaceSecondary,
+                          borderRadius: JedaRadii.borderR12,
+                          border: Border.all(
+                            color: isIntervalActive ? JedaColors.primary : JedaColors.border,
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              isIntervalActive ? Icons.lock_clock : Icons.access_time_rounded,
+                              color: isIntervalActive ? JedaColors.primaryDark : JedaColors.textSecondary,
+                              size: 20,
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    '${interval.start} - ${interval.end}',
+                                    style: JedaTypography.labelBold.copyWith(
+                                      color: isIntervalActive ? JedaColors.primaryDark : JedaColors.textPrimary,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    dayNames,
+                                    style: JedaTypography.caption.copyWith(
+                                      color: isIntervalActive ? JedaColors.primaryDark : JedaColors.textSecondary,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            if (isIntervalActive)
+                              const JedaBadge(
+                                label: 'Aktif',
+                                variant: JedaBadgeVariant.success,
+                              ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                ],
+                const SizedBox(height: 14),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: canDeleteNow
+                        ? JedaColors.surfaceSecondary.withValues(alpha: 0.7)
+                        : JedaColors.warningSoft.withValues(alpha: 0.65),
+                    borderRadius: JedaRadii.borderR12,
+                    border: Border.all(
+                      color: canDeleteNow ? JedaColors.border : const Color(0xFFE8D3B4),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        canDeleteNow ? Icons.shield_outlined : Icons.lock_clock_outlined,
+                        size: 18,
+                        color: canDeleteNow ? JedaColors.primary : JedaColors.warning,
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          canDeleteNow
+                              ? 'Aturan Komitmen Jeda: Kamu hanya dapat menghapus maksimal 1 penguncian setiap 4 hari.'
+                              : 'Kuota hapus sedang terkunci demi menjaga komitmenmu. Tersedia kembali dalam ${_formatDeletionCooldown(remainingCooldown)}.',
+                          style: JedaTypography.caption.copyWith(
+                            color: canDeleteNow ? JedaColors.textSecondary : JedaColors.warning,
+                            fontWeight: canDeleteNow ? FontWeight.normal : FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 22),
+                Row(
+                  children: [
+                    Expanded(
+                      child: JedaButton(
+                        label: 'Edit',
+                        icon: Icons.edit_outlined,
+                        variant: JedaButtonVariant.secondary,
+                        onPressed: () => _openEditLock(lock, ctx),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: JedaButton(
+                        label: canDeleteNow ? 'Hapus' : 'Terkunci',
+                        icon: Icons.delete_outline_rounded,
+                        variant: JedaButtonVariant.destructive,
+                        onPressed: () => _confirmDeleteLock(lock, ctx),
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -532,286 +941,833 @@ class _DashboardBodyState extends ConsumerState<DashboardBody> with WidgetsBindi
     );
   }
 
+  Future<void> _showDeletionCooldownBlockedModal({
+    required String itemName,
+    required String? focusGoal,
+    required Duration remainingCooldown,
+    required VoidCallback onEditInstead,
+  }) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: JedaColors.surface,
+      shape: const RoundedRectangleBorder(borderRadius: JedaRadii.sheetTop),
+      builder: (ctx) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(24, 12, 24, 28),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 36,
+                    height: 4,
+                    margin: const EdgeInsets.only(bottom: 20),
+                    decoration: BoxDecoration(
+                      color: JedaColors.border,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                Container(
+                  width: 48,
+                  height: 48,
+                  decoration: const BoxDecoration(
+                    color: JedaColors.warningSoft,
+                    borderRadius: JedaRadii.borderR12,
+                  ),
+                  child: const Icon(Icons.psychology_alt_outlined, color: JedaColors.warning, size: 26),
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  'Jeda Melindungi Komitmen Fokusmu 🌱',
+                  style: JedaTypography.heading3,
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Kamu sudah menggunakan jatah hapus penguncian dalam 4 hari terakhir. Untuk mencegah pembatalan impulsif saat otak mencari dopamin cepat, Jeda hanya mengizinkan 1 penghapusan setiap 4 hari.',
+                  style: JedaTypography.bodySecondary.copyWith(height: 1.5),
+                ),
+                const SizedBox(height: 16),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: JedaColors.surfaceSecondary,
+                    borderRadius: JedaRadii.borderR12,
+                    border: Border.all(color: JedaColors.border),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(Icons.hourglass_bottom_rounded, size: 16, color: JedaColors.warning),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              'Kuota hapus berikutnya: ${_formatDeletionCooldown(remainingCooldown)} lagi',
+                              style: JedaTypography.labelBold.copyWith(color: JedaColors.warning),
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (focusGoal != null && focusGoal.trim().isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        Text(
+                          'Ingat tujuan awalmu mengunci $itemName:\n“${focusGoal.trim()}”',
+                          style: JedaTypography.caption.copyWith(
+                            color: JedaColors.textPrimary,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 22),
+                Row(
+                  children: [
+                    Expanded(
+                      child: JedaButton(
+                        label: 'Edit Aturan',
+                        variant: JedaButtonVariant.secondary,
+                        onPressed: () {
+                          Navigator.pop(ctx);
+                          onEditInstead();
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: JedaButton(
+                        label: 'Tetap Fokus 🌱',
+                        variant: JedaButtonVariant.primary,
+                        onPressed: () => Navigator.pop(ctx),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _confirmDeleteLock(LockEntry lock, BuildContext sheetCtx) async {
+    final storage = ref.read(storageServiceProvider);
+    if (!storage.canDeleteLockNow()) {
+      final remaining = storage.getRemainingDeletionCooldown();
+      await _showDeletionCooldownBlockedModal(
+        itemName: lock.appName,
+        focusGoal: lock.focusGoal,
+        remainingCooldown: remaining,
+        onEditInstead: () => _openEditLock(lock, sheetCtx),
+      );
+      return;
+    }
+
+    final goalInfo = (lock.focusGoal != null && lock.focusGoal!.trim().isNotEmpty)
+        ? '\n\n🎯 Tujuan awalmu: "${lock.focusGoal!.trim()}"'
+        : '';
+
+    final confirmed = await JedaBottomSheet.showConfirmation(
+      context: context,
+      title: 'Gunakan Kuota Hapus (1x / 4 Hari)?',
+      message:
+          'Kamu hanya diperbolehkan menghapus 1 penguncian dalam rentang 4 hari. Jika kamu menghapus "${lock.appName}" sekarang, kamu tidak dapat menghapus penguncian aplikasi lain selama 4 hari ke depan.$goalInfo',
+      confirmLabel: 'Ya, Hapus',
+      cancelLabel: 'Tetap Fokus',
+      isDestructive: true,
+      icon: Icons.psychology_outlined,
+    );
+
+    if (confirmed == true && mounted) {
+      final nativeBridge = ref.read(nativeBridgeServiceProvider);
+
+      await storage.removeLock(lock.id);
+      await storage.recordLockDeletion();
+      final activeRules = storage.getActiveRules();
+      await nativeBridge.updateBlockedList(activeRules);
+
+      if (sheetCtx.mounted) {
+        Navigator.pop(sheetCtx);
+      }
+
+      _loadLocalDataSync();
+      setState(() {});
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Penguncian "${lock.appName}" dihapus. Kuota hapus berikutnya tersedia dalam 4 hari.',
+            ),
+            backgroundColor: JedaColors.primaryDark,
+          ),
+        );
+      }
+    }
+  }
+
+  void _showQuotaDetailModal(QuotaEntry quota) {
+    final usedMinutes = quota.usedTodaySeconds ~/ 60;
+    final remainingMinutes = quota.remainingSeconds ~/ 60;
+    final isExhausted = quota.isQuotaExhausted;
+    final isEmergency = quota.isEmergencyActive;
+    final storage = ref.read(storageServiceProvider);
+    final canDeleteNow = storage.canDeleteLockNow();
+    final remainingCooldown = storage.getRemainingDeletionCooldown();
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: JedaColors.surface,
+      shape: const RoundedRectangleBorder(borderRadius: JedaRadii.sheetTop),
+      builder: (ctx) {
+        return SafeArea(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(24, 12, 24, 28),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 36,
+                    height: 4,
+                    margin: const EdgeInsets.only(bottom: 20),
+                    decoration: BoxDecoration(
+                      color: JedaColors.border,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                Row(
+                  children: [
+                    if (quota.packageNames.isNotEmpty)
+                      AppIconWidget(
+                        packageName: quota.packageNames.first,
+                        size: 54,
+                        borderRadius: JedaRadii.borderR16,
+                      ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(quota.groupName, style: JedaTypography.heading3.copyWith(fontSize: 18)),
+                          const SizedBox(height: 2),
+                          Text(
+                            '${quota.packageNames.length} aplikasi terdaftar',
+                            style: JedaTypography.caption.copyWith(color: JedaColors.textTertiary),
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: () => _openEditQuota(quota, ctx),
+                      icon: const Icon(Icons.edit_outlined, color: JedaColors.primaryDark),
+                      tooltip: 'Edit Kuota',
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    const JedaBadge(
+                      label: 'Kuota Waktu Harian',
+                      variant: JedaBadgeVariant.neutral,
+                      icon: Icons.timelapse_outlined,
+                    ),
+                    if (isEmergency)
+                      const JedaBadge(label: 'Darurat Aktif (5m)', variant: JedaBadgeVariant.warning)
+                    else if (isExhausted)
+                      const JedaBadge(label: 'Kuota Habis', variant: JedaBadgeVariant.error, icon: Icons.lock_outline)
+                    else
+                      JedaBadge(label: '$remainingMinutes mnt tersisa', variant: JedaBadgeVariant.success),
+                  ],
+                ),
+                const SizedBox(height: 16),
+
+                // Psychological Goal & Reflection Note Section
+                _buildPsychologicalGoalSection(
+                  focusGoal: quota.focusGoal,
+                  description: quota.description,
+                  onEditTap: () => _openEditQuota(quota, ctx),
+                ),
+
+                const SizedBox(height: 16),
+                JedaCard(
+                  backgroundColor: JedaColors.surfaceSecondary,
+                  borderColor: JedaColors.border,
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    children: [
+                      _buildDetailRow(
+                        label: 'Jatah Kuota Harian',
+                        value: '${quota.dailyQuotaMinutes} Menit',
+                        icon: Icons.timer_outlined,
+                      ),
+                      const Divider(height: 20, color: JedaColors.border),
+                      _buildDetailRow(
+                        label: 'Terpakai Hari Ini',
+                        value: '$usedMinutes Menit',
+                        icon: Icons.history,
+                      ),
+                      const Divider(height: 20, color: JedaColors.border),
+                      _buildDetailRow(
+                        label: 'Sisa Waktu',
+                        value: '$remainingMinutes Menit',
+                        icon: Icons.alarm,
+                        valueColor: isExhausted ? JedaColors.error : JedaColors.primaryDark,
+                        isBold: true,
+                      ),
+                      const Divider(height: 20, color: JedaColors.border),
+                      _buildDetailRow(
+                        label: 'Tiket Darurat Mingguan',
+                        value: '${quota.emergencyTickets}/2 Tersedia',
+                        icon: Icons.confirmation_number_outlined,
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+                const Text('Aplikasi Dalam Grup Ini:', style: JedaTypography.labelBold),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: List.generate(quota.packageNames.length, (i) {
+                    final pkg = quota.packageNames[i];
+                    final name = i < quota.appNames.length ? quota.appNames[i] : pkg;
+                    return Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: JedaColors.surfaceSecondary,
+                        borderRadius: JedaRadii.borderR8,
+                        border: Border.all(color: JedaColors.border),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          AppIconWidget(packageName: pkg, size: 20, borderRadius: JedaRadii.borderR8),
+                          const SizedBox(width: 8),
+                          Text(name, style: JedaTypography.caption.copyWith(fontWeight: FontWeight.w600)),
+                        ],
+                      ),
+                    );
+                  }),
+                ),
+                const SizedBox(height: 14),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: canDeleteNow
+                        ? JedaColors.surfaceSecondary.withValues(alpha: 0.7)
+                        : JedaColors.warningSoft.withValues(alpha: 0.65),
+                    borderRadius: JedaRadii.borderR12,
+                    border: Border.all(
+                      color: canDeleteNow ? JedaColors.border : const Color(0xFFE8D3B4),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        canDeleteNow ? Icons.shield_outlined : Icons.lock_clock_outlined,
+                        size: 18,
+                        color: canDeleteNow ? JedaColors.primary : JedaColors.warning,
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          canDeleteNow
+                              ? 'Aturan Komitmen Jeda: Kamu hanya dapat menghapus maksimal 1 aturan setiap 4 hari.'
+                              : 'Kuota hapus sedang terkunci demi menjaga komitmenmu. Tersedia kembali dalam ${_formatDeletionCooldown(remainingCooldown)}.',
+                          style: JedaTypography.caption.copyWith(
+                            color: canDeleteNow ? JedaColors.textSecondary : JedaColors.warning,
+                            fontWeight: canDeleteNow ? FontWeight.normal : FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 22),
+                Row(
+                  children: [
+                    Expanded(
+                      child: JedaButton(
+                        label: 'Edit',
+                        icon: Icons.edit_outlined,
+                        variant: JedaButtonVariant.secondary,
+                        onPressed: () => _openEditQuota(quota, ctx),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: JedaButton(
+                        label: canDeleteNow ? 'Hapus' : 'Terkunci',
+                        icon: Icons.delete_outline_rounded,
+                        variant: JedaButtonVariant.destructive,
+                        onPressed: () => _confirmDeleteQuota(quota, ctx),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _confirmDeleteQuota(QuotaEntry quota, BuildContext sheetCtx) async {
+    final storage = ref.read(storageServiceProvider);
+    if (!storage.canDeleteLockNow()) {
+      final remaining = storage.getRemainingDeletionCooldown();
+      await _showDeletionCooldownBlockedModal(
+        itemName: quota.groupName,
+        focusGoal: quota.focusGoal,
+        remainingCooldown: remaining,
+        onEditInstead: () => _openEditQuota(quota, sheetCtx),
+      );
+      return;
+    }
+
+    final goalInfo = (quota.focusGoal != null && quota.focusGoal!.trim().isNotEmpty)
+        ? '\n\n🎯 Tujuan awalmu: "${quota.focusGoal!.trim()}"'
+        : '';
+
+    final confirmed = await JedaBottomSheet.showConfirmation(
+      context: context,
+      title: 'Gunakan Kuota Hapus (1x / 4 Hari)?',
+      message:
+          'Kamu hanya diperbolehkan menghapus 1 penguncian dalam rentang 4 hari. Jika kamu menghapus grup kuota "${quota.groupName}" sekarang, kamu tidak dapat menghapus penguncian lain selama 4 hari ke depan.$goalInfo',
+      confirmLabel: 'Ya, Hapus',
+      cancelLabel: 'Tetap Fokus',
+      isDestructive: true,
+      icon: Icons.psychology_outlined,
+    );
+
+    if (confirmed == true && mounted) {
+      final nativeBridge = ref.read(nativeBridgeServiceProvider);
+
+      await storage.removeQuota(quota.id);
+      await storage.recordLockDeletion();
+      final activeRules = storage.getActiveRules();
+      await nativeBridge.updateBlockedList(activeRules);
+
+      if (sheetCtx.mounted) {
+        Navigator.pop(sheetCtx);
+      }
+
+      _loadLocalDataSync();
+      setState(() {});
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Grup kuota "${quota.groupName}" dihapus. Kuota hapus berikutnya tersedia dalam 4 hari.',
+            ),
+            backgroundColor: JedaColors.primaryDark,
+          ),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final authState = ref.watch(authStateProvider);
     final displayStreak = authState.value?.currentStreakDays ?? _streakDays;
 
+    final activelyBlockingLocks = _activeLocks.where((l) => l.isCurrentlyBlocking).toList();
+    final exhaustedQuotas = _quotas.where((q) => q.isCurrentlyBlocking).toList();
+    final isAnyAppActivelyBlocked = activelyBlockingLocks.isNotEmpty || exhaustedQuotas.isNotEmpty;
+
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F0E8),
+      backgroundColor: JedaColors.background,
       appBar: AppBar(
-        title: const Text('Jeda 🌿', style: TextStyle(fontWeight: FontWeight.bold)),
-        backgroundColor: const Color(0xFFF5F0E8),
+        title: const Text('Jeda', style: JedaTypography.heading2),
         automaticallyImplyLeading: false,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.add, color: JedaColors.textPrimary),
+            tooltip: 'Tambah Pembatasan',
+            onPressed: _showAddOptionModal,
+          ),
+          const SizedBox(width: 8),
+        ],
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(20),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.05),
-                    blurRadius: 10,
-                    offset: const Offset(0, 4),
-                  )
-                ],
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceAround,
-                children: [
-                  Expanded(
-                    child: Column(
-                      children: [
-                        Text(
-                          '$_hoursSaved jam',
-                          style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Color(0xFF87A878)),
-                        ),
-                        const SizedBox(height: 4),
-                        const Text('berhasil ditahan', style: TextStyle(color: Colors.grey), textAlign: TextAlign.center),
-                      ],
-                    ),
-                  ),
-                  Container(width: 1, height: 40, color: Colors.grey.withValues(alpha: 0.3)),
-                  Expanded(
-                    child: Column(
-                      children: [
-                        Text(
-                          '$displayStreak hari',
-                          style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Color(0xFF87A878)),
-                        ),
-                        const SizedBox(height: 4),
-                        const Text('Streak', style: TextStyle(color: Colors.grey), textAlign: TextAlign.center),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 24),
-            
-            // SECTION 1: KUOTA HARIAN
-            if (_quotas.isNotEmpty) ...[
+      body: RefreshIndicator(
+        onRefresh: _initData,
+        color: JedaColors.primary,
+        child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: JedaSpacing.screenPadding,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // 1. HERO STATUS CARD (Fokus visual utama)
+              _buildHeroStatus(isAnyAppActivelyBlocked, activelyBlockingLocks, exhaustedQuotas),
+
+              const SizedBox(height: 20),
+
+              // 2. RINGKASAN PROGRES (Metrik yang tenang & berguna)
+              _buildProgressSummary(displayStreak),
+
+              const SizedBox(height: 28),
+
+              // 3. SECTION: KUOTA HARIAN
+              if (_quotas.isNotEmpty) ...[
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text('Kuota Waktu Harian', style: JedaTypography.heading3),
+                    Text('${_quotas.length} grup', style: JedaTypography.caption),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                ListView.separated(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  itemCount: _quotas.length,
+                  separatorBuilder: (_, __) => const SizedBox(height: 12),
+                  itemBuilder: (context, index) => _buildQuotaCard(_quotas[index]),
+                ),
+                const SizedBox(height: 28),
+              ],
+
+              // 4. SECTION: DETOKS PENUH & JADWAL
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text(
-                    'Kuota Harian',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF2D2D2D)),
-                  ),
-                  Row(
-                    children: const [
-                      Icon(Icons.lock_outline, size: 14, color: Colors.grey),
-                      SizedBox(width: 4),
-                      Text('Terkunci', style: TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.bold)),
-                    ],
-                  ),
+                  const Text('Detoks & Jadwal Rutin', style: JedaTypography.heading3),
+                  if (_activeLocks.isNotEmpty)
+                    Text('${_activeLocks.length} aturan', style: JedaTypography.caption),
                 ],
               ),
               const SizedBox(height: 12),
-              ListView.builder(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                itemCount: _quotas.length,
-                itemBuilder: (context, index) {
-                  final quota = _quotas[index];
-                  final totalSec = quota.dailyQuotaMinutes * 60;
-                  final progress = (quota.usedTodaySeconds / totalSec).clamp(0.0, 1.0);
-                  final isExhausted = quota.isQuotaExhausted;
-                  final isEmergency = quota.isEmergencyActive;
+              if (_activeLocks.isEmpty)
+                _buildEmptyStateCard()
+              else
+                ListView.separated(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  itemCount: _activeLocks.length,
+                  separatorBuilder: (_, __) => const SizedBox(height: 12),
+                  itemBuilder: (context, index) => _buildLockCard(_activeLocks[index]),
+                ),
 
-                  // Quota cards cannot be deleted manually to enforce focus commitment
-                  return Card(
-                    margin: const EdgeInsets.only(bottom: 12),
-                    elevation: 0,
-                    color: Colors.white,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                    child: Padding(
-                      padding: const EdgeInsets.all(16.0),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Row(
-                                children: [
-                                  Text(quota.groupName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                                  const SizedBox(width: 8),
-                                  if (isEmergency)
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                                      decoration: BoxDecoration(
-                                        color: Colors.orange[100],
-                                        borderRadius: BorderRadius.circular(8),
-                                      ),
-                                      child: const Text('Darurat Aktif (5m)', style: TextStyle(fontSize: 10, color: Colors.orange, fontWeight: FontWeight.bold)),
-                                    ),
-                                ],
-                              ),
-                              Text(
-                                isExhausted ? 'Habis 🔒' : '${_formatSecondsToMinutes(quota.usedTodaySeconds)} / ${quota.dailyQuotaMinutes}m',
-                                style: TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  color: isExhausted ? Colors.red : const Color(0xFF87A878),
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 8),
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(4),
-                            child: LinearProgressIndicator(
-                              value: progress,
-                              backgroundColor: Colors.grey[200],
-                              valueColor: AlwaysStoppedAnimation<Color>(
-                                isExhausted ? Colors.redAccent : const Color(0xFF87A878),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  quota.appNames.join(', '),
-                                  style: const TextStyle(fontSize: 12, color: Colors.grey),
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                              Text(
-                                '🎫 ${quota.emergencyTickets}/2 Tiket',
-                                style: const TextStyle(fontSize: 12, color: Colors.grey),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                  );
-                },
-              ),
-              const SizedBox(height: 24),
+              const SizedBox(height: 40),
             ],
-
-            // SECTION 2: SEDANG DIKUNCI
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text(
-                  'Sedang Dikunci Direct',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF2D2D2D)),
-                ),
-                if (_activeLocks.isNotEmpty)
-                  Row(
-                    children: const [
-                      Icon(Icons.lock_outline, size: 14, color: Colors.grey),
-                      SizedBox(width: 4),
-                      Text('Terkunci', style: TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.bold)),
-                    ],
-                  ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            _activeLocks.isEmpty && _quotas.isEmpty
-                ? Center(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 40.0),
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          const Text('🌱', style: TextStyle(fontSize: 64)),
-                          const SizedBox(height: 16),
-                          const Text('Belum ada sesi fokus aktif', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                          const SizedBox(height: 8),
-                          Text('Tap tombol + untuk mulai fokus', style: TextStyle(color: Colors.grey[600])),
-                        ],
-                      ),
-                    ),
-                  )
-                : _activeLocks.isEmpty
-                    ? const Padding(
-                        padding: EdgeInsets.symmetric(vertical: 12.0),
-                        child: Text('Belum ada penguncian langsung.', style: TextStyle(color: Colors.grey)),
-                      )
-                    : ListView.builder(
-                        shrinkWrap: true,
-                        physics: const NeverScrollableScrollPhysics(),
-                        itemCount: _activeLocks.length,
-                        itemBuilder: (context, index) {
-                          final lock = _activeLocks[index];
-                          return Card(
-                            margin: const EdgeInsets.only(bottom: 12),
-                            elevation: 0,
-                            color: Colors.white,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                            child: ListTile(
-                              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                              leading: CircleAvatar(
-                                backgroundColor: Colors.grey[200],
-                                child: const Icon(Icons.apps, color: Colors.grey), 
-                              ),
-                              title: Text(lock.appName, style: const TextStyle(fontWeight: FontWeight.bold)),
-                              subtitle: Text(lock.isScheduled 
-                                  ? 'Rutin: ${lock.scheduledStart} - ${lock.scheduledEnd}' 
-                                  : 'Menjaga jarak...'),
-                              trailing: lock.isScheduled
-                                  ? const Icon(Icons.calendar_today, color: Color(0xFF87A878))
-                                  : Column(
-                                      mainAxisAlignment: MainAxisAlignment.center,
-                                      crossAxisAlignment: CrossAxisAlignment.end,
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        Text(
-                                          _formatDuration(lock.remaining),
-                                          style: const TextStyle(
-                                            fontSize: 16,
-                                            fontWeight: FontWeight.bold,
-                                            color: Color(0xFF87A878),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                            ),
-                          );
-                        },
-                      ),
-            if (_quotas.isNotEmpty || _activeLocks.isNotEmpty)
-              Container(
-                margin: const EdgeInsets.only(top: 12),
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFEAF2E8),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: const Row(
-                  children: [
-                    Icon(Icons.shield_outlined, color: Color(0xFF87A878), size: 20),
-                    SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        "Aturan & Jadwal yang telah dibuat dikunci permanen dan tidak dapat dihapus demi komitmen fokusmu 🌱",
-                        style: TextStyle(fontSize: 12, color: Color(0xFF2D2D2D)),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-          ],
+          ),
         ),
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _showAddOptionModal,
-        backgroundColor: const Color(0xFF87A878),
-        foregroundColor: Colors.white,
-        icon: const Icon(Icons.add),
-        label: const Text('Fokus Baru', style: TextStyle(fontWeight: FontWeight.bold)),
+    );
+  }
+
+  Widget _buildHeroStatus(
+    bool isBlocking,
+    List<LockEntry> blockingLocks,
+    List<QuotaEntry> exhaustedQuotas,
+  ) {
+    if (!isBlocking) {
+      return JedaCard(
+        backgroundColor: JedaColors.surfaceSecondary,
+        borderColor: JedaColors.border,
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                JedaBadge(
+                  label: 'Kondisi Tenang',
+                  variant: JedaBadgeVariant.neutral,
+                  icon: Icons.check_circle_outline,
+                ),
+                Icon(Icons.spa_outlined, color: JedaColors.primary, size: 20),
+              ],
+            ),
+            const SizedBox(height: 14),
+            const Text(
+              'Tidak ada aplikasi yang sedang diblokir.',
+              style: JedaTypography.heading3,
+            ),
+            const SizedBox(height: 6),
+            const Text(
+              'Pikiran Anda bebas. Buat pembatasan saat Anda ingin melindungi waktu kerja atau istirahat.',
+              style: JedaTypography.bodySecondary,
+            ),
+            const SizedBox(height: 18),
+            JedaButton(
+              label: 'Mulai Pembatasan Baru',
+              onPressed: _showAddOptionModal,
+              variant: JedaButtonVariant.primary,
+              height: 44,
+              icon: Icons.add,
+            ),
+          ],
+        ),
+      );
+    }
+
+    final blockedNames = <String>[];
+    for (var l in blockingLocks) {
+      blockedNames.add(l.appName);
+    }
+    for (var q in exhaustedQuotas) {
+      blockedNames.addAll(q.appNames);
+    }
+    final summaryApps = blockedNames.toSet().take(3).join(', ');
+
+    return JedaCard(
+      backgroundColor: JedaColors.primarySoft,
+      borderColor: const Color(0xFFC7DAC9),
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const JedaBadge(
+                label: 'Pembatasan Sedang Berjalan',
+                variant: JedaBadgeVariant.success,
+                icon: Icons.lock_clock,
+              ),
+              Text(
+                '${blockedNames.toSet().length} aplikasi',
+                style: JedaTypography.caption.copyWith(color: JedaColors.primaryDark),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Text(
+            summaryApps.isNotEmpty ? 'Menjaga jarak dari $summaryApps' : 'Sesi Fokus Terlindungi',
+            style: JedaTypography.heading3.copyWith(color: JedaColors.primaryDark),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Layar jeda akan muncul jika aplikasi terkait dibuka untuk mengembalikan fokus Anda.',
+            style: JedaTypography.bodySecondary.copyWith(color: JedaColors.primaryDark.withValues(alpha: 0.8)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildProgressSummary(int streak) {
+    return JedaCard(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '$_hoursSaved jam',
+                  style: JedaTypography.heading2.copyWith(color: JedaColors.primaryDark),
+                ),
+                const SizedBox(height: 2),
+                const Text('Waktu terselamatkan', style: JedaTypography.caption),
+              ],
+            ),
+          ),
+          Container(width: 1, height: 36, color: JedaColors.border),
+          const SizedBox(width: 20),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '$streak hari',
+                  style: JedaTypography.heading2.copyWith(color: JedaColors.primaryDark),
+                ),
+                const SizedBox(height: 2),
+                const Text('Komitmen beruntun', style: JedaTypography.caption),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildQuotaCard(QuotaEntry quota) {
+    final totalSec = quota.dailyQuotaMinutes * 60;
+    final progress = (quota.usedTodaySeconds / totalSec).clamp(0.0, 1.0);
+    final isExhausted = quota.isQuotaExhausted;
+    final isEmergency = quota.isEmergencyActive;
+
+    return JedaCard(
+      onTap: () => _showQuotaDetailModal(quota),
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              if (quota.packageNames.isNotEmpty) ...[
+                AppIconWidget(
+                  packageName: quota.packageNames.first,
+                  size: 32,
+                  borderRadius: JedaRadii.borderR8,
+                ),
+                const SizedBox(width: 10),
+              ],
+              Expanded(
+                child: Text(quota.groupName, style: JedaTypography.labelBold),
+              ),
+              if (isEmergency)
+                const JedaBadge(
+                  label: 'Darurat Aktif (5m)',
+                  variant: JedaBadgeVariant.warning,
+                )
+              else if (isExhausted)
+                const JedaBadge(
+                  label: 'Kuota Habis',
+                  variant: JedaBadgeVariant.error,
+                  icon: Icons.lock_outline,
+                )
+              else
+                JedaBadge(
+                  label: '${_formatSecondsToMinutes(quota.remainingSeconds)} tersisa',
+                  variant: JedaBadgeVariant.neutral,
+                ),
+              const SizedBox(width: 6),
+              const Icon(Icons.chevron_right, size: 18, color: JedaColors.textTertiary),
+            ],
+          ),
+          const SizedBox(height: 12),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(3),
+            child: LinearProgressIndicator(
+              value: progress,
+              minHeight: 6,
+              backgroundColor: JedaColors.surfaceSecondary,
+              valueColor: AlwaysStoppedAnimation<Color>(
+                isExhausted ? JedaColors.error : JedaColors.primary,
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Expanded(
+                child: Text(
+                  quota.appNames.join(', '),
+                  style: JedaTypography.caption,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              Text(
+                '${quota.emergencyTickets}/2 Tiket Darurat',
+                style: JedaTypography.caption.copyWith(color: JedaColors.textSecondary),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLockCard(LockEntry lock) {
+    final isScheduled = lock.isScheduled;
+    final isCurrentlyActive = lock.isCurrentlyBlocking;
+
+    return JedaCard(
+      onTap: () => _showLockDetailModal(lock),
+      padding: const EdgeInsets.all(16),
+      child: Row(
+        children: [
+          AppIconWidget(
+            packageName: lock.packageName,
+            size: 40,
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(lock.appName, style: JedaTypography.labelBold),
+                const SizedBox(height: 2),
+                Text(
+                  isScheduled
+                      ? 'Jadwal: ${lock.schedulePreviewText}'
+                      : 'Detoks sisa: ${_formatDuration(lock.remaining)}',
+                  style: JedaTypography.caption,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                if (lock.focusGoal != null && lock.focusGoal!.trim().isNotEmpty) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    '🎯 ${lock.focusGoal!.trim()}',
+                    style: JedaTypography.caption.copyWith(
+                      fontSize: 11,
+                      color: JedaColors.primaryDark,
+                      fontWeight: FontWeight.w600,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ],
+            ),
+          ),
+          if (isScheduled) ...[
+            JedaBadge(
+              label: isCurrentlyActive ? 'Aktif Sekarang' : 'Terjadwal',
+              variant: isCurrentlyActive ? JedaBadgeVariant.success : JedaBadgeVariant.neutral,
+            ),
+            const SizedBox(width: 6),
+            const Icon(Icons.chevron_right, size: 18, color: JedaColors.textTertiary),
+          ] else ...[
+            Text(
+              _formatDuration(lock.remaining),
+              style: JedaTypography.labelBold.copyWith(color: JedaColors.primaryDark),
+            ),
+            const SizedBox(width: 6),
+            const Icon(Icons.chevron_right, size: 18, color: JedaColors.textTertiary),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEmptyStateCard() {
+    return JedaCard(
+      padding: const EdgeInsets.symmetric(vertical: 28, horizontal: 20),
+      backgroundColor: JedaColors.surfaceSecondary,
+      borderColor: JedaColors.border,
+      child: Center(
+        child: Column(
+          children: [
+            const Icon(Icons.hourglass_empty_rounded, color: JedaColors.textTertiary, size: 32),
+            const SizedBox(height: 12),
+            const Text('Belum ada detoks atau jadwal rutin', style: JedaTypography.labelBold),
+            const SizedBox(height: 4),
+            Text(
+              'Gunakan tombol + di sudut kanan atas untuk menetapkan komitmen baru.',
+              style: JedaTypography.caption.copyWith(color: JedaColors.textSecondary),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
       ),
     );
   }

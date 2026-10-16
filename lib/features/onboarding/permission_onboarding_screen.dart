@@ -90,7 +90,7 @@ class _PermissionOnboardingScreenState extends ConsumerState<PermissionOnboardin
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                         decoration: BoxDecoration(
-                          color: const Color(0xFF87A878).withOpacity(0.15),
+                          color: const Color(0xFF87A878).withValues(alpha: 0.15),
                           borderRadius: BorderRadius.circular(12),
                         ),
                         child: Text(
@@ -191,7 +191,7 @@ class _PermissionOnboardingScreenState extends ConsumerState<PermissionOnboardin
             borderRadius: BorderRadius.circular(24),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.04),
+                color: Colors.black.withValues(alpha: 0.04),
                 blurRadius: 16,
                 offset: const Offset(0, 4),
               ),

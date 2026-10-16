@@ -1,8 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:jeda/core/services/native_bridge_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:async';
+import '../../core/services/native_bridge_service.dart';
+import '../../core/theme/jeda_colors.dart';
+import '../../core/theme/jeda_typography.dart';
+import '../../core/widgets/jeda_button.dart';
+import '../../core/widgets/jeda_card.dart';
 
 class UninstallFrictionScreen extends ConsumerStatefulWidget {
   const UninstallFrictionScreen({super.key});
@@ -13,11 +17,11 @@ class UninstallFrictionScreen extends ConsumerStatefulWidget {
 
 class _UninstallFrictionScreenState extends ConsumerState<UninstallFrictionScreen> {
   int _currentStep = 0;
-  final String _targetPhrase = "Saya sadar bahwa dengan menghapus Jeda, saya membiarkan diri saya kembali dikendalikan oleh distraksi digital. Saya secara sadar memilih untuk menyerah pada komitmen fokus saya.";
+  final String _targetPhrase = "Saya memahami bahwa mencopot Jeda akan menonaktifkan seluruh perlindungan fokus dan batasan waktu layar yang telah saya atur. Saya secara sadar memilih untuk melanjutkan.";
   final TextEditingController _textController = TextEditingController();
   
-  // Timer for reading
-  int _readingSecondsLeft = 120; // 2 minutes
+  // Timer for reading reflection
+  int _readingSecondsLeft = 60; // 1 minute calm reflection
   Timer? _readingTimer;
 
   // Cooldown
@@ -42,7 +46,6 @@ class _UninstallFrictionScreenState extends ConsumerState<UninstallFrictionScree
         });
         _startCooldownTimer();
       } else {
-        // Cooldown passed, allow disable
         setState(() {
           _currentStep = 4; // Final allow step
         });
@@ -85,7 +88,7 @@ class _UninstallFrictionScreenState extends ConsumerState<UninstallFrictionScree
 
   Future<void> _initiateCooldown() async {
     final prefs = await SharedPreferences.getInstance();
-    final end = DateTime.now().add(const Duration(hours: 1));
+    final end = DateTime.now().add(const Duration(minutes: 30)); // 30-min mindful cooldown
     await prefs.setString('uninstall_cooldown_end', end.toIso8601String());
     setState(() {
       _cooldownEnd = end;
@@ -114,15 +117,13 @@ class _UninstallFrictionScreenState extends ConsumerState<UninstallFrictionScree
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: JedaColors.background,
       appBar: AppBar(
-        title: const Text("Nonaktifkan Perlindungan", style: TextStyle(color: Colors.white)),
-        backgroundColor: Colors.red[900],
-        iconTheme: const IconThemeData(color: Colors.white),
+        title: const Text("Pencopotan Terstruktur", style: JedaTypography.heading3),
       ),
-      backgroundColor: Colors.grey[900],
       body: SafeArea(
         child: Padding(
-          padding: const EdgeInsets.all(24.0),
+          padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 20.0),
           child: _buildCurrentStep(),
         ),
       ),
@@ -132,7 +133,7 @@ class _UninstallFrictionScreenState extends ConsumerState<UninstallFrictionScree
   Widget _buildCurrentStep() {
     switch (_currentStep) {
       case 0:
-        return _buildStep1GuiltTrip();
+        return _buildStep1Reflection();
       case 1:
         return _buildStep2Typing();
       case 2:
@@ -146,40 +147,45 @@ class _UninstallFrictionScreenState extends ConsumerState<UninstallFrictionScree
     }
   }
 
-  Widget _buildStep1GuiltTrip() {
+  Widget _buildStep1Reflection() {
     return Center(
       child: SingleChildScrollView(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const Icon(Icons.shield_outlined, size: 80, color: Colors.white54),
+            Container(
+              width: 72,
+              height: 72,
+              decoration: const BoxDecoration(
+                color: JedaColors.primarySoft,
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.shield_outlined, size: 36, color: JedaColors.primaryDark),
+            ),
             const SizedBox(height: 24),
             const Text(
-              "Yakin mau melepaskan Bodyguard-mu?",
+              "Apakah Anda ingin menonaktifkan Jeda?",
               textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white),
+              style: JedaTypography.heading2,
             ),
-            const SizedBox(height: 16),
-            const Text(
-              "Jeda telah melindungimu dari ribuan distraksi. Jika kamu menonaktifkannya, kamu akan kembali rentan terhadap godaan media sosial dan aplikasi yang menyita waktumu.",
+            const SizedBox(height: 12),
+            Text(
+              "Jeda dirancang untuk memberi Anda ruang bernapas sebelum refleks membuka aplikasi otomatis mengambil alih waktu Anda. Jika dicopot, semua proteksi dan batasan aktif akan terhenti.",
               textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 16, color: Colors.white70),
+              style: JedaTypography.bodySecondary.copyWith(height: 1.5),
             ),
-            const SizedBox(height: 48),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.grey[800],
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              ),
+            const SizedBox(height: 40),
+            JedaButton(
+              label: "Batalkan & Tetap Fokus",
               onPressed: () => Navigator.pop(context),
-              child: const Text("Kembali Fokus", style: TextStyle(color: Colors.white, fontSize: 16)),
+              variant: JedaButtonVariant.primary,
             ),
-            const SizedBox(height: 16),
-            TextButton(
+            const SizedBox(height: 12),
+            JedaButton(
+              label: "Lanjutkan Prosedur Pencopotan",
               onPressed: _nextStep,
-              child: const Text("Saya tetap ingin menonaktifkan", style: TextStyle(color: Colors.redAccent)),
+              variant: JedaButtonVariant.ghost,
             ),
           ],
         ),
@@ -196,58 +202,40 @@ class _UninstallFrictionScreenState extends ConsumerState<UninstallFrictionScree
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           const Text(
-            "Ketik Komitmenmu",
+            "Konfirmasi Kesadaran Penuh",
             textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white),
+            style: JedaTypography.heading2,
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 8),
           const Text(
-            "Ketik ulang teks di bawah ini dengan tepat (tanpa copy-paste) untuk membuktikan kamu sadar sepenuhnya:",
+            "Ketik ulang kalimat di bawah ini secara manual untuk memastikan keputusan ini diambil secara tenang dan terencana:",
             textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 14, color: Colors.white70),
+            style: JedaTypography.bodySecondary,
           ),
           const SizedBox(height: 20),
-          Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Colors.black54,
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: Colors.white24),
-            ),
+          JedaCard(
+            backgroundColor: JedaColors.surfaceSecondary,
             child: Text(
               _targetPhrase,
-              style: const TextStyle(color: Colors.white, fontStyle: FontStyle.italic, height: 1.45),
+              style: JedaTypography.body.copyWith(fontStyle: FontStyle.italic, height: 1.5),
             ),
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 16),
           TextField(
             controller: _textController,
             maxLines: 4,
-            style: const TextStyle(color: Colors.white),
-            enableInteractiveSelection: false, // Disables copy/paste
-            decoration: InputDecoration(
-              hintText: "Ketik di sini...",
-              hintStyle: const TextStyle(color: Colors.white30),
-              filled: true,
-              fillColor: Colors.grey[800],
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+            enableInteractiveSelection: false,
+            decoration: const InputDecoration(
+              hintText: "Ketik kalimat di atas di sini...",
             ),
             onChanged: (val) => setState(() {}),
           ),
           const SizedBox(height: 24),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: isMatch ? Colors.red : Colors.grey[700],
-              padding: const EdgeInsets.symmetric(vertical: 16),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            ),
+          JedaButton(
+            label: isMatch ? "Lanjutkan" : "Ketik Kalimat Di Atas Lengkap",
             onPressed: isMatch ? _nextStep : null,
-            child: const Text(
-              "Lanjut",
-              style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
-            ),
+            variant: isMatch ? JedaButtonVariant.primary : JedaButtonVariant.secondary,
           ),
-          const SizedBox(height: 20),
         ],
       ),
     );
@@ -258,50 +246,43 @@ class _UninstallFrictionScreenState extends ConsumerState<UninstallFrictionScree
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         const Text(
-          "Renungkan Sejenak",
+          "Refleksi Sebelum Berpisah",
           textAlign: TextAlign.center,
-          style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white),
+          style: JedaTypography.heading2,
         ),
-        const SizedBox(height: 16),
-        Expanded(
-          child: Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: Colors.black54,
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: const SingleChildScrollView(
+        const SizedBox(height: 8),
+        const Text(
+          "Satu menit untuk merenungkan kebiasaan digital Anda.",
+          textAlign: TextAlign.center,
+          style: JedaTypography.caption,
+        ),
+        const SizedBox(height: 20),
+        const Expanded(
+          child: JedaCard(
+            child: SingleChildScrollView(
               physics: BouncingScrollPhysics(),
               child: Text(
-                "Aplikasi Jeda dirancang bukan sebagai penjara, melainkan sebagai tameng. "
-                "Setiap kali kamu membuka HP, perusahaan teknologi menggunakan trik psikologis "
-                "untuk mencuri perhatianmu. Mereka memenangkan miliaran dolar dari waktu yang "
-                "seharusnya kamu gunakan untuk belajar, berkarya, atau beristirahat dengan benar.\n\n"
-                "Dengan menonaktifkan Jeda, kamu sedang memberikan kembali kunci hidupmu kepada "
-                "algoritma yang tidak peduli pada masa depanmu. "
-                "Tarik napas dalam-dalam. Apakah kamu benar-benar perlu menghapus perlindungan ini sekarang? "
-                "Atau ini hanya dorongan impulsif sementara?",
-                style: TextStyle(color: Colors.white70, fontSize: 16, height: 1.5),
+                "Aplikasi media sosial dan hiburan modern dioptimalkan oleh ribuan insinyur terbaik dunia untuk menahan perhatian kita selama mungkin. Itu bukan kelemahan tekad Anda—itu adalah rancangan sistem yang sengaja memanfaatkan biologi dopamin manusia.\n\n"
+                "Jeda hadir bukan untuk mengekang, melainkan memberikan jeda sepersekian detik yang seringkali hilang saat jari kita bergerak otomatis.\n\n"
+                "Bila Anda merasa sudah memiliki kendali sadar atas penggunaan ponsel Anda, kami menghormati pilihan Anda sepenuhnya. Terima kasih telah melatih kesadaran bersama Jeda.",
+                style: JedaTypography.body,
               ),
             ),
           ),
         ),
-        const SizedBox(height: 24),
+        const SizedBox(height: 20),
         if (_readingSecondsLeft > 0)
-          Text(
-            "Tombol lanjut akan muncul dalam $_readingSecondsLeft detik",
-            textAlign: TextAlign.center,
-            style: const TextStyle(color: Colors.white54),
+          Center(
+            child: Text(
+              "Waktu hening tersisa: $_readingSecondsLeft detik",
+              style: JedaTypography.caption.copyWith(color: JedaColors.textSecondary),
+            ),
           )
         else
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red,
-              padding: const EdgeInsets.symmetric(vertical: 16),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            ),
+          JedaButton(
+            label: "Saya Siap Masuk Masa Pendinginan",
             onPressed: _initiateCooldown,
-            child: const Text("Saya Paham, Lanjut", style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+            variant: JedaButtonVariant.primary,
           ),
       ],
     );
@@ -314,34 +295,30 @@ class _UninstallFrictionScreenState extends ConsumerState<UninstallFrictionScree
           mainAxisAlignment: MainAxisAlignment.center,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const Icon(Icons.timer_outlined, size: 80, color: Colors.orange),
-            const SizedBox(height: 24),
+            const Icon(Icons.hourglass_bottom, size: 64, color: JedaColors.warning),
+            const SizedBox(height: 20),
             const Text(
-              "Waktu Tunggu (Cooling-Off)",
+              "Masa Pendinginan (Cooling-off)",
               textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white),
+              style: JedaTypography.heading2,
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 10),
             const Text(
-              "Permintaan penonaktifan diterima. Untuk memastikan ini bukan keputusan impulsif, perlindungan baru bisa dilepas dalam:",
+              "Masa jeda 30 menit ini memastikan Anda tidak sedang mengambil tindakan reaktif saat emosi frustrasi sesaat.",
               textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 16, color: Colors.white70),
+              style: JedaTypography.bodySecondary,
             ),
-            const SizedBox(height: 32),
+            const SizedBox(height: 28),
             Text(
               _cooldownRemaining,
               textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 48, fontWeight: FontWeight.bold, color: Colors.orangeAccent),
+              style: JedaTypography.display.copyWith(color: JedaColors.warning),
             ),
-            const SizedBox(height: 48),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.grey[800],
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              ),
+            const SizedBox(height: 36),
+            JedaButton(
+              label: "Tutup & Kembali Nanti",
               onPressed: () => Navigator.pop(context),
-              child: const Text("Tutup dan Kembali", style: TextStyle(color: Colors.white, fontSize: 16)),
+              variant: JedaButtonVariant.secondary,
             ),
           ],
         ),
@@ -356,36 +333,35 @@ class _UninstallFrictionScreenState extends ConsumerState<UninstallFrictionScree
           mainAxisAlignment: MainAxisAlignment.center,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const Icon(Icons.warning_amber_rounded, size: 80, color: Colors.redAccent),
-            const SizedBox(height: 24),
+            const Icon(Icons.check_circle_outline, size: 64, color: JedaColors.success),
+            const SizedBox(height: 20),
             const Text(
-              "Perlindungan Siap Dilepas",
+              "Izin Administrator Siap Dicabut",
               textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white),
+              style: JedaTypography.heading2,
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 10),
             const Text(
-              "Waktu tunggu telah berakhir. Kamu sekarang bisa menonaktifkan Jeda.",
+              "Masa pendinginan telah selesai. Tekan tombol di bawah untuk mencabut izin Administrator Perangkat secara resmi.",
               textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 16, color: Colors.white70),
+              style: JedaTypography.bodySecondary,
             ),
-            const SizedBox(height: 48),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.red[900],
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              ),
+            const SizedBox(height: 36),
+            JedaButton(
+              label: "Cabut Izin Device Administrator",
+              variant: JedaButtonVariant.destructive,
               onPressed: () async {
                 final bridge = ref.read(nativeBridgeServiceProvider);
                 await bridge.removeDeviceAdmin();
                 if (!mounted) return;
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Device Admin dinonaktifkan. Kamu bisa uninstall Jeda sekarang.')),
+                  const SnackBar(
+                    content: Text('Izin Administrator Perangkat berhasil dicabut. Anda dapat mencopot Jeda melalui Setelan perangkat.'),
+                    backgroundColor: JedaColors.primaryDark,
+                  ),
                 );
                 Navigator.pop(context);
               },
-              child: const Text("Nonaktifkan Device Admin", style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
             ),
           ],
         ),

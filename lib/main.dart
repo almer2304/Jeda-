@@ -4,6 +4,7 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'core/models/lock_entry.dart';
 import 'core/models/blocked_domain.dart';
 import 'core/models/quota_entry.dart';
+import 'core/theme/jeda_theme.dart';
 import 'core/services/storage_service.dart';
 import 'features/onboarding/feature_walkthrough_screen.dart';
 import 'features/dashboard/dashboard_screen.dart';
@@ -42,16 +43,7 @@ class JedaApp extends StatelessWidget {
     return MaterialApp(
       title: 'Jeda',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF87A878),
-          surface: const Color(0xFFF5F0E8),
-        ),
-        useMaterial3: true,
-        textTheme: const TextTheme(
-          bodyMedium: TextStyle(color: Color(0xFF2D2D2D)),
-        ),
-      ),
+      theme: JedaTheme.lightTheme,
       home: storageService.isOnboardingDone()
           ? const DashboardScreen()
           : const FeatureWalkthroughScreen(),

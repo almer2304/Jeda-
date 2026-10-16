@@ -2,6 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/services/native_bridge_service.dart';
 import '../../core/providers/auth_provider.dart';
+import '../../core/theme/jeda_colors.dart';
+import '../../core/theme/jeda_radii.dart';
+import '../../core/theme/jeda_typography.dart';
+import '../../core/widgets/jeda_badge.dart';
+import '../../core/widgets/jeda_button.dart';
+import '../../core/widgets/jeda_card.dart';
 import '../auth/login_screen.dart';
 import 'uninstall_friction_screen.dart';
 
@@ -21,7 +27,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     super.initState();
     Future.microtask(() {
       _refreshPermissions();
-      // Pastikan state auth selalu segar saat buka tab Pengaturan (IndexedStack tidak rebuild otomatis)
       ref.read(authStateProvider.notifier).checkCurrentUser();
     });
   }
@@ -29,7 +34,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    // Ketika kembali dari LoginScreen via Navigator.pop, paksa refresh
     ref.read(authStateProvider.notifier).checkCurrentUser();
   }
 
@@ -46,200 +50,142 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     });
   }
 
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F0E8),
+      backgroundColor: JedaColors.background,
       appBar: AppBar(
-        title: const Text('Pengaturan', style: TextStyle(fontWeight: FontWeight.bold)),
-        backgroundColor: const Color(0xFFF5F0E8),
-        elevation: 0,
+        title: const Text('Pengaturan', style: JedaTypography.heading2),
       ),
       body: ListView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
         children: [
-          _buildSectionHeader('Akun & Sinkronisasi Cloud 🌿'),
+          _buildSectionHeader('Akun & Sinkronisasi Cloud'),
           Consumer(
             builder: (context, ref, child) {
               final authState = ref.watch(authStateProvider);
               return authState.when(
                 data: (user) {
                   if (user != null) {
-                    return Card(
-                      elevation: 0,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                      child: Padding(
-                        padding: const EdgeInsets.all(16.0),
-                        child: Column(
-                          children: [
-                            Row(
-                              children: [
-                                CircleAvatar(
-                                  backgroundColor: const Color(0xFFEAF2E8),
-                                  radius: 26,
+                    return JedaCard(
+                      child: Column(
+                        children: [
+                          Row(
+                            children: [
+                              Container(
+                                width: 50,
+                                height: 50,
+                                decoration: const BoxDecoration(
+                                  color: JedaColors.primarySoft,
+                                  shape: BoxShape.circle,
+                                ),
+                                child: Center(
                                   child: Text(
                                     user.name.isNotEmpty ? user.name.substring(0, 1).toUpperCase() : 'U',
-                                    style: const TextStyle(
-                                      fontSize: 22,
-                                      fontWeight: FontWeight.bold,
-                                      color: Color(0xFF87A878),
+                                    style: JedaTypography.heading3.copyWith(color: JedaColors.primaryDark),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 14),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(user.name, style: JedaTypography.labelBold),
+                                    Text(
+                                      '@${user.username} • ${user.email}',
+                                      style: JedaTypography.caption,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
                                     ),
-                                  ),
+                                    const SizedBox(height: 6),
+                                    Wrap(
+                                      spacing: 6,
+                                      children: [
+                                        JedaBadge(
+                                          label: '${user.totalPoints} Poin',
+                                          variant: JedaBadgeVariant.neutral,
+                                        ),
+                                        JedaBadge(
+                                          label: '${user.currentStreakDays} Hari Streak',
+                                          variant: JedaBadgeVariant.success,
+                                        ),
+                                      ],
+                                    ),
+                                  ],
                                 ),
-                                const SizedBox(width: 14),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        user.name,
-                                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                              ),
+                            ],
+                          ),
+                          const Divider(height: 24),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              TextButton.icon(
+                                onPressed: () {
+                                  ref.read(authStateProvider.notifier).refreshProfile();
+                                },
+                                icon: const Icon(Icons.refresh, size: 16, color: JedaColors.primary),
+                                label: const Text('Sinkron Profil'),
+                              ),
+                              TextButton.icon(
+                                onPressed: () async {
+                                  final confirm = await showDialog<bool>(
+                                    context: context,
+                                    builder: (ctx) => AlertDialog(
+                                      shape: const RoundedRectangleBorder(borderRadius: JedaRadii.borderR16),
+                                      title: const Text('Keluar Akun', style: JedaTypography.heading3),
+                                      content: const Text(
+                                        'Apakah Anda yakin ingin keluar? Pengaturan lokal Anda tetap aman di perangkat ini.',
+                                        style: JedaTypography.body,
                                       ),
-                                      Text(
-                                        '@${user.username} • ${user.email}',
-                                        style: const TextStyle(fontSize: 12, color: Colors.grey),
-                                      ),
-                                      const SizedBox(height: 6),
-                                      Wrap(
-                                        spacing: 6,
-                                        runSpacing: 4,
-                                        children: [
-                                          Container(
-                                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                                            decoration: BoxDecoration(
-                                              color: const Color(0xFFEAF2E8),
-                                              borderRadius: BorderRadius.circular(6),
-                                            ),
-                                            child: Text(
-                                              '🌟 ${user.totalPoints} Poin • 🔥 ${user.currentStreakDays} Hari',
-                                              style: const TextStyle(
-                                                fontSize: 11,
-                                                fontWeight: FontWeight.bold,
-                                                color: Color(0xFF87A878),
-                                              ),
-                                            ),
-                                          ),
-                                          Container(
-                                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                                            decoration: BoxDecoration(
-                                              color: Colors.blue[50],
-                                              borderRadius: BorderRadius.circular(6),
-                                            ),
-                                            child: Text(
-                                              '👥 ${user.followersCount} Pengikut • ${user.followingCount} Mengikuti',
-                                              style: TextStyle(
-                                                fontSize: 11,
-                                                fontWeight: FontWeight.bold,
-                                                color: Colors.blue[800],
-                                              ),
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const Divider(height: 24),
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                TextButton.icon(
-                                  onPressed: () {
-                                    ref.read(authStateProvider.notifier).refreshProfile();
-                                  },
-                                  icon: const Icon(Icons.refresh, size: 16, color: Color(0xFF87A878)),
-                                  label: const Text('Refresh', style: TextStyle(color: Color(0xFF87A878), fontSize: 13)),
-                                ),
-                                ElevatedButton.icon(
-                                  onPressed: () async {
-                                    final confirm = await showDialog<bool>(
-                                      context: context,
-                                      builder: (ctx) => AlertDialog(
-                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                                        title: const Text('Keluar Akun'),
-                                        content: const Text('Apakah kamu yakin ingin keluar dari akun ini?'),
-                                        actions: [
-                                          TextButton(
-                                            onPressed: () => Navigator.pop(ctx, false),
-                                            child: const Text('Batal'),
-                                          ),
-                                          ElevatedButton(
-                                            onPressed: () => Navigator.pop(ctx, true),
-                                            style: ElevatedButton.styleFrom(
-                                              backgroundColor: Colors.redAccent,
-                                              foregroundColor: Colors.white,
-                                            ),
-                                            child: const Text('Keluar'),
-                                          ),
-                                        ],
-                                      ),
-                                    );
-                                    if (confirm == true) {
-                                      await ref.read(authStateProvider.notifier).logout();
-                                      if (context.mounted) {
-                                        ScaffoldMessenger.of(context).showSnackBar(
-                                          const SnackBar(content: Text('Berhasil keluar akun')),
-                                        );
-                                      }
-                                    }
-                                  },
-                                  icon: const Icon(Icons.logout, size: 16),
-                                  label: const Text('Keluar Akun'),
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: Colors.redAccent.withValues(alpha: 0.1),
-                                    foregroundColor: Colors.redAccent,
-                                    elevation: 0,
-                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
+                                      actions: [
+                                        TextButton(
+                                          onPressed: () => Navigator.pop(ctx, false),
+                                          child: const Text('Batal'),
+                                        ),
+                                        TextButton(
+                                          onPressed: () => Navigator.pop(ctx, true),
+                                          style: TextButton.styleFrom(foregroundColor: JedaColors.error),
+                                          child: const Text('Keluar'),
+                                        ),
+                                      ],
+                                    ),
+                                  );
+                                  if (confirm == true) {
+                                    await ref.read(authStateProvider.notifier).logout();
+                                  }
+                                },
+                                icon: const Icon(Icons.logout, size: 16, color: JedaColors.error),
+                                label: const Text('Keluar Akun', style: TextStyle(color: JedaColors.error)),
+                              ),
+                            ],
+                          ),
+                        ],
                       ),
                     );
                   } else {
-                    return Card(
-                      elevation: 0,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                      child: Padding(
-                        padding: const EdgeInsets.all(16.0),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text(
-                              'Belum Masuk Akun 🌿',
-                              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                            ),
-                            const SizedBox(height: 4),
-                            const Text(
-                              'Masuk atau daftar akun untuk mencatat streak, membuka badge, dan ikut leaderboard komunitas.',
-                              style: TextStyle(fontSize: 12, color: Colors.grey),
-                            ),
-                            const SizedBox(height: 12),
-                            SizedBox(
-                              width: double.infinity,
-                              child: ElevatedButton(
-                                onPressed: () {
-                                  Navigator.of(context).push(
-                                    MaterialPageRoute(builder: (context) => const LoginScreen()),
-                                  );
-                                },
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: const Color(0xFF87A878),
-                                  foregroundColor: Colors.white,
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                ),
-                                child: const Text('Masuk / Daftar Akun'),
-                              ),
-                            ),
-                          ],
-                        ),
+                    return JedaCard(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('Mode Mandiri (Offline)', style: JedaTypography.labelBold),
+                          const SizedBox(height: 4),
+                          const Text(
+                            'Data disimpan lokal di perangkat. Masuk akun bila ingin berpartisipasi dalam tantangan komunitas dan papan peringkat.',
+                            style: JedaTypography.caption,
+                          ),
+                          const SizedBox(height: 14),
+                          JedaButton(
+                            label: 'Masuk / Daftar Akun',
+                            height: 44,
+                            onPressed: () {
+                              Navigator.of(context).push(
+                                MaterialPageRoute(builder: (context) => const LoginScreen()),
+                              );
+                            },
+                          ),
+                        ],
                       ),
                     );
                   }
@@ -247,175 +193,122 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 loading: () => const Center(
                   child: Padding(
                     padding: EdgeInsets.all(16.0),
-                    child: CircularProgressIndicator(color: Color(0xFF87A878)),
+                    child: CircularProgressIndicator(strokeWidth: 2.2, color: JedaColors.primary),
                   ),
                 ),
-                error: (e, _) => Card(
-                  elevation: 0,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                  child: Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Row(
-                          children: [
-                            Icon(Icons.cloud_off, color: Colors.orange, size: 20),
-                            SizedBox(width: 8),
-                            Text(
-                              'Gagal Memuat Akun Cloud',
-                              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 6),
-                        Text(
-                          e.toString().replaceFirst('Exception: ', ''),
-                          style: const TextStyle(fontSize: 12, color: Colors.grey),
-                        ),
-                        const SizedBox(height: 12),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: OutlinedButton(
-                                onPressed: () {
-                                  ref.read(authStateProvider.notifier).checkCurrentUser();
-                                },
-                                style: OutlinedButton.styleFrom(
-                                  foregroundColor: const Color(0xFF87A878),
-                                  side: const BorderSide(color: Color(0xFF87A878)),
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                                ),
-                                child: const Text('Coba Lagi'),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: ElevatedButton(
-                                onPressed: () async {
-                                  await ref.read(authStateProvider.notifier).logout();
-                                  if (context.mounted) {
-                                    Navigator.of(context).push(
-                                      MaterialPageRoute(builder: (context) => const LoginScreen()),
-                                    );
-                                  }
-                                },
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: Colors.redAccent,
-                                  foregroundColor: Colors.white,
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                                ),
-                                child: const Text('Keluar / Ganti'),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
+                error: (e, _) => JedaCard(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('Gagal Memuat Akun Cloud', style: JedaTypography.labelBold),
+                      const SizedBox(height: 4),
+                      Text(
+                        e.toString().replaceFirst('Exception: ', ''),
+                        style: JedaTypography.caption,
+                      ),
+                      const SizedBox(height: 12),
+                      JedaButton(
+                        label: 'Coba Lagi',
+                        height: 40,
+                        variant: JedaButtonVariant.secondary,
+                        onPressed: () => ref.read(authStateProvider.notifier).checkCurrentUser(),
+                      ),
+                    ],
                   ),
                 ),
               );
             },
           ),
+
           const SizedBox(height: 24),
           _buildSectionHeader('Status Izin Sistem'),
 
-          Card(
-            elevation: 0,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 8.0),
-              child: FutureBuilder<Map<String, bool>>(
-                future: _permissionsFuture,
-                builder: (context, snapshot) {
-                  if (snapshot.connectionState == ConnectionState.waiting) {
-                    return const Center(
-                      child: Padding(
-                        padding: EdgeInsets.all(24),
-                        child: CircularProgressIndicator(color: Color(0xFF87A878)),
-                      ),
-                    );
-                  }
-                  final permissions = snapshot.data ?? {};
-                  return Column(
-                    children: [
-                      _buildPermissionItem(
-                        'Akses Penggunaan',
-                        permissions['usage'] ?? false,
-                        'usage',
-                      ),
-                      const Divider(height: 1, indent: 16, endIndent: 16),
-                      _buildPermissionItem(
-                        'Tampil di Atas App Lain',
-                        permissions['overlay'] ?? false,
-                        'overlay',
-                      ),
-                      const Divider(height: 1, indent: 16, endIndent: 16),
-                      _buildPermissionItem(
-                        'Pengecualian Baterai',
-                        permissions['battery'] ?? false,
-                        'battery',
-                      ),
-                      const Divider(height: 1, indent: 16, endIndent: 16),
-                      _buildPermissionItem(
-                        'Mode Bodyguard (Admin)',
-                        permissions['deviceAdmin'] ?? false,
-                        'deviceAdmin',
-                      ),
-                      const Divider(height: 1, indent: 16, endIndent: 16),
-                      _buildPermissionItem(
-                        'Cegah Hapus Paksa (Aksesibilitas)',
-                        permissions['accessibility'] ?? false,
-                        'accessibility',
-                      ),
-                    ],
+          JedaCard(
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            child: FutureBuilder<Map<String, bool>>(
+              future: _permissionsFuture,
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(
+                    child: Padding(
+                      padding: EdgeInsets.all(24),
+                      child: CircularProgressIndicator(strokeWidth: 2.2, color: JedaColors.primary),
+                    ),
                   );
-                },
-              ),
-            ),
-          ),
-          
-          const SizedBox(height: 24),
-          _buildSectionHeader('Perlindungan Ekstra'),
-          Card(
-            elevation: 0,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-            child: Column(
-              children: [
-                ListTile(
-                  leading: const Icon(Icons.shield_outlined, color: Colors.redAccent),
-                  title: const Text('Nonaktifkan Bodyguard (Uninstall)'),
-                  subtitle: const Text(
-                    'Melewati tahapan khusus untuk mematikan pelindung agar Jeda bisa dihapus.',
-                    style: TextStyle(fontSize: 12),
-                  ),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (context) => const UninstallFrictionScreen()),
-                    ).then((_) => _refreshPermissions());
-                  },
-                ),
-              ],
+                }
+                final permissions = snapshot.data ?? {};
+                return Column(
+                  children: [
+                    _buildPermissionItem(
+                      'Akses Data Penggunaan',
+                      permissions['usage'] ?? false,
+                      'usage',
+                    ),
+                    const Divider(),
+                    _buildPermissionItem(
+                      'Tampil di Atas Aplikasi Lain',
+                      permissions['overlay'] ?? false,
+                      'overlay',
+                    ),
+                    const Divider(),
+                    _buildPermissionItem(
+                      'Pengecualian Penghemat Baterai',
+                      permissions['battery'] ?? false,
+                      'battery',
+                    ),
+                    const Divider(),
+                    _buildPermissionItem(
+                      'Mode Bodyguard (Admin Perangkat)',
+                      permissions['deviceAdmin'] ?? false,
+                      'deviceAdmin',
+                    ),
+                    const Divider(),
+                    _buildPermissionItem(
+                      'Layanan Aksesibilitas (Deteksi App)',
+                      permissions['accessibility'] ?? false,
+                      'accessibility',
+                    ),
+                  ],
+                );
+              },
             ),
           ),
 
           const SizedBox(height: 24),
-          _buildSectionHeader('Filter Web (VPN)'),
-          Card(
-            elevation: 0,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          _buildSectionHeader('Pencopotan Aplikasi'),
+          JedaCard(
+            padding: EdgeInsets.zero,
+            child: ListTile(
+              leading: const Icon(Icons.shield_outlined, color: JedaColors.error),
+              title: const Text('Prosedur Pencopotan Jeda', style: JedaTypography.labelBold),
+              subtitle: const Text(
+                'Mencabut hak izin Administrator Perangkat secara sadar dan aman.',
+                style: JedaTypography.caption,
+              ),
+              trailing: const Icon(Icons.chevron_right, color: JedaColors.textTertiary),
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => const UninstallFrictionScreen()),
+                ).then((_) => _refreshPermissions());
+              },
+            ),
+          ),
+
+          const SizedBox(height: 24),
+          _buildSectionHeader('Filter Konten (DNS)'),
+          JedaCard(
+            padding: const EdgeInsets.symmetric(vertical: 4),
             child: Column(
               children: [
                 SwitchListTile(
-                  title: const Text('Aktifkan Filter DNS', style: TextStyle(fontWeight: FontWeight.bold)),
+                  title: const Text('Aktifkan Filter DNS Bersih', style: JedaTypography.labelBold),
                   subtitle: const Text(
-                    'Memblokir akses ke situs judi dan konten dewasa menggunakan filter DNS lokal di perangkatmu.',
-                    style: TextStyle(fontSize: 13, color: Colors.grey),
+                    'Menyaring akses situs judi dan konten berisiko secara lokal di perangkat tanpa server proxy.',
+                    style: JedaTypography.caption,
                   ),
                   value: _isVpnEnabled,
-                  activeColor: const Color(0xFF87A878),
+                  activeThumbColor: JedaColors.primary,
                   onChanged: (value) async {
                     setState(() {
                       _isVpnEnabled = value;
@@ -427,41 +320,26 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     }
                   },
                 ),
-                ListTile(
-                  leading: const Icon(Icons.public_off, color: Color(0xFF87A878)),
-                  title: const Text('Kelola Domain Khusus'),
-                  trailing: const Icon(Icons.chevron_right),
-                  onTap: () {
-                    // TODO: Navigate to blocked domain manager
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Segera hadir')),
-                    );
-                  },
-                ),
               ],
             ),
           ),
 
           const SizedBox(height: 24),
-          _buildSectionHeader('Tentang'),
-          Card(
-            elevation: 0,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-            child: const Padding(
-              padding: EdgeInsets.all(16.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Jeda v1.0.0', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                  SizedBox(height: 8),
-                  Text(
-                    'Semua data tersimpan di perangkatmu. Tidak ada informasi yang dikirim ke server manapun. Privasimu adalah prioritas.',
-                    style: TextStyle(color: Colors.grey, height: 1.4),
-                  ),
-                ],
-              ),
+          _buildSectionHeader('Tentang Aplikasi'),
+          const JedaCard(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Jeda v1.0.0', style: JedaTypography.labelBold),
+                SizedBox(height: 6),
+                Text(
+                  'Pemrosesan pembatasan berjalan 100% lokal pada perangkat. Jeda menghormati privasi penuh Anda tanpa pelacak latar belakang.',
+                  style: JedaTypography.caption,
+                ),
+              ],
             ),
           ),
+          const SizedBox(height: 32),
         ],
       ),
     );
@@ -469,30 +347,34 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
   Widget _buildSectionHeader(String title) {
     return Padding(
-      padding: const EdgeInsets.only(left: 8, bottom: 12),
+      padding: const EdgeInsets.only(left: 4, bottom: 8),
       child: Text(
         title,
-        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF2D2D2D)),
+        style: JedaTypography.labelBold.copyWith(color: JedaColors.textSecondary),
       ),
     );
   }
 
   Widget _buildPermissionItem(String title, bool isGranted, String type) {
     return ListTile(
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
       leading: Icon(
-        isGranted ? Icons.check_circle : Icons.warning_amber_rounded,
-        color: isGranted ? const Color(0xFF87A878) : Colors.orange,
+        isGranted ? Icons.check_circle_outlined : Icons.warning_amber_rounded,
+        color: isGranted ? JedaColors.success : JedaColors.warning,
+        size: 20,
       ),
-      title: Text(title),
+      title: Text(title, style: JedaTypography.body),
       trailing: isGranted
-          ? const Text('Aktif', style: TextStyle(color: Color(0xFF87A878), fontWeight: FontWeight.bold))
+          ? const JedaBadge(
+              label: 'Aktif',
+              variant: JedaBadgeVariant.success,
+            )
           : TextButton(
               onPressed: () async {
                 await ref.read(nativeBridgeServiceProvider).openSettingsFor(type);
-                // We add a slight delay so when they return, we refresh the UI
                 Future.delayed(const Duration(seconds: 1), _refreshPermissions);
               },
-              child: const Text('Perbaiki', style: TextStyle(color: Colors.orange)),
+              child: const Text('Aktifkan', style: TextStyle(color: JedaColors.warning, fontWeight: FontWeight.w600)),
             ),
     );
   }

@@ -28,8 +28,16 @@ class AppMonitorService : Service() {
                     // Persist it
                     val prefs = getSharedPreferences("JedaNativePrefs", Context.MODE_PRIVATE)
                     prefs.edit().putString("blocked_rules_json", extras).apply()
+                    BootReceiver.scheduleWatchdogAlarm(this@AppMonitorService, 180_000L)
                 }
             }
+        }
+    }
+
+    private val screenReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            BlockRulesManager.loadRules(this@AppMonitorService)
+            BootReceiver.scheduleWatchdogAlarm(this@AppMonitorService, 180_000L)
         }
     }
 
@@ -39,11 +47,23 @@ class AppMonitorService : Service() {
         startForegroundServiceWithNotification()
 
         BlockRulesManager.loadRules(this)
+        BootReceiver.scheduleWatchdogAlarm(this, 180_000L)
 
         LocalBroadcastManager.getInstance(this).registerReceiver(
             updateReceiver,
             IntentFilter("UPDATE_BLOCKED_LIST")
         )
+        try {
+            val screenFilter = IntentFilter().apply {
+                addAction(Intent.ACTION_SCREEN_ON)
+                addAction(Intent.ACTION_USER_PRESENT)
+                addAction(Intent.ACTION_TIME_CHANGED)
+                addAction(Intent.ACTION_TIMEZONE_CHANGED)
+            }
+            registerReceiver(screenReceiver, screenFilter)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
         
         // Start background app monitor loop and watchdog
         startMonitoringLoop()
@@ -52,65 +72,76 @@ class AppMonitorService : Service() {
 
     private fun startMonitoringLoop() {
         val overlayManager = OverlayManager.getInstance(this)
-        var lastForegroundApp = ""
+        var quotaTrackingApp = ""
+        var quotaAccumulatedMs = 0L
+        var lastCheckTime = System.currentTimeMillis()
 
         scope.launch {
             while (isActive) {
                 try {
-                    // If JedaAccessibilityService is active, it handles overlay and tracking with zero latency.
-                    if (JedaAccessibilityService.isServiceRunning) {
-                        delay(2000)
-                        continue
-                    }
-
-                    if (overlayManager.isExitingBlockedApp(lastForegroundApp)) {
-                        if (overlayManager.isShowing()) {
-                            withContext(Dispatchers.Main) {
-                                overlayManager.hideOverlay()
-                            }
-                        }
-                        delay(1000)
-                        continue
-                    }
+                    val now = System.currentTimeMillis()
+                    val deltaMs = (now - lastCheckTime).coerceAtLeast(0L)
+                    lastCheckTime = now
 
                     val foregroundApp = UsageStatsHelper.getForegroundApp(this@AppMonitorService)
 
-                    if (foregroundApp != null && !LauncherHelper.isLauncherOrSystem(this@AppMonitorService, foregroundApp)) {
-                        // 1. Quota usage tracking (1 second per tick)
-                        BlockRulesManager.incrementQuotaUsage(foregroundApp, 1, this@AppMonitorService)
-
-                        // 2. Blocking logic
-                        val isBlocked = BlockRulesManager.isAppBlocked(foregroundApp, this@AppMonitorService)
-                        if (isBlocked) {
-                            if (!overlayManager.isShowing() && !overlayManager.isExitingBlockedApp(foregroundApp)) {
-                                withContext(Dispatchers.Main) {
-                                    overlayManager.showOverlay(foregroundApp)
-                                }
-                                val intent = Intent("APP_BLOCKED_EVENT")
-                                intent.putExtra("package_name", foregroundApp)
-                                LocalBroadcastManager.getInstance(this@AppMonitorService).sendBroadcast(intent)
-                            }
-                        } else {
+                    if (foregroundApp != null && foregroundApp != this@AppMonitorService.packageName && !LauncherHelper.isSystemUi(foregroundApp)) {
+                        if (LauncherHelper.isLauncher(this@AppMonitorService, foregroundApp)) {
+                            // User is on home screen launcher
                             if (overlayManager.isShowing()) {
                                 withContext(Dispatchers.Main) {
                                     overlayManager.hideOverlay()
                                 }
                             }
-                        }
-                        lastForegroundApp = foregroundApp
-                    } else {
-                        // User is in launcher, system UI, Jeda itself, or no app is active
-                        if (overlayManager.isShowing()) {
-                            withContext(Dispatchers.Main) {
-                                overlayManager.hideOverlay()
+                            if (quotaTrackingApp.isNotEmpty() && quotaAccumulatedMs >= 1000L) {
+                                val seconds = (quotaAccumulatedMs / 1000L).toInt()
+                                BlockRulesManager.incrementQuotaUsage(quotaTrackingApp, seconds, this@AppMonitorService)
+                            }
+                            quotaTrackingApp = ""
+                            quotaAccumulatedMs = 0L
+                        } else {
+                            // 1. Quota usage tracking (Accumulate and flush every second)
+                            if (foregroundApp == quotaTrackingApp) {
+                                quotaAccumulatedMs += deltaMs
+                                if (quotaAccumulatedMs >= 1000L) {
+                                    val seconds = (quotaAccumulatedMs / 1000L).toInt()
+                                    BlockRulesManager.incrementQuotaUsage(foregroundApp, seconds, this@AppMonitorService)
+                                    quotaAccumulatedMs %= 1000L
+                                }
+                            } else {
+                                if (quotaTrackingApp.isNotEmpty() && quotaAccumulatedMs >= 1000L) {
+                                    val seconds = (quotaAccumulatedMs / 1000L).toInt()
+                                    BlockRulesManager.incrementQuotaUsage(quotaTrackingApp, seconds, this@AppMonitorService)
+                                }
+                                quotaTrackingApp = foregroundApp
+                                quotaAccumulatedMs = 0L
+                            }
+
+                            // 2. Blocking logic (Always active even alongside AccessibilityService for zero-gap reliability)
+                            val isBlocked = BlockRulesManager.isAppBlocked(foregroundApp, this@AppMonitorService)
+                            if (isBlocked) {
+                                if (!overlayManager.isShowing()) {
+                                    withContext(Dispatchers.Main) {
+                                        overlayManager.showOverlay(foregroundApp)
+                                    }
+                                    val intent = Intent("APP_BLOCKED_EVENT")
+                                    intent.putExtra("package_name", foregroundApp)
+                                    LocalBroadcastManager.getInstance(this@AppMonitorService).sendBroadcast(intent)
+                                }
+                            } else {
+                                // Only hide if the blocked app is no longer blocked or user switched to an allowed app
+                                if (overlayManager.isShowing() && !BlockRulesManager.isAppBlocked(overlayManager.lastBlockedPackageName, this@AppMonitorService)) {
+                                    withContext(Dispatchers.Main) {
+                                        overlayManager.hideOverlay()
+                                    }
+                                }
                             }
                         }
-                        lastForegroundApp = ""
                     }
                 } catch (e: Exception) {
                     e.printStackTrace()
                 }
-                delay(1000) // Poll every 1 second
+                delay(300) // Poll every 300ms for snappy detection
             }
         }
     }
@@ -125,6 +156,7 @@ class AppMonitorService : Service() {
                         val dnsIntent = Intent(this@AppMonitorService, DnsFilterService::class.java)
                         startService(dnsIntent)
                     }
+                    BootReceiver.scheduleWatchdogAlarm(this@AppMonitorService, 180_000L)
                 } catch (e: Exception) {
                     e.printStackTrace()
                 }
@@ -138,7 +170,10 @@ class AppMonitorService : Service() {
             BlockRulesManager.updateRules(it)
             val prefs = getSharedPreferences("JedaNativePrefs", Context.MODE_PRIVATE)
             prefs.edit().putString("blocked_rules_json", it).apply()
+        } ?: run {
+            BlockRulesManager.loadRules(this)
         }
+        BootReceiver.scheduleWatchdogAlarm(this, 180_000L)
         return START_STICKY
     }
 
@@ -168,27 +203,47 @@ class AppMonitorService : Service() {
         }
     }
 
+    private fun scheduleImmediateRestartIfNeeded() {
+        try {
+            if (!BlockRulesManager.hasAnyActiveRules(this)) return
+
+            BootReceiver.scheduleWatchdogAlarm(this, 1500L)
+
+            val restartServiceIntent = Intent(applicationContext, AppMonitorService::class.java).also {
+                it.setPackage(packageName)
+            }
+            val flags = PendingIntent.FLAG_ONE_SHOT or
+                (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0)
+            val restartServicePendingIntent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                PendingIntent.getForegroundService(this, 1, restartServiceIntent, flags)
+            } else {
+                PendingIntent.getService(this, 1, restartServiceIntent, flags)
+            }
+            val alarmService = getSystemService(Context.ALARM_SERVICE) as AlarmManager
+            val triggerAt = System.currentTimeMillis() + 1000L
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                alarmService.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, restartServicePendingIntent)
+            } else {
+                alarmService.set(AlarmManager.RTC_WAKEUP, triggerAt, restartServicePendingIntent)
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
     override fun onTaskRemoved(rootIntent: Intent?) {
         super.onTaskRemoved(rootIntent)
-        val restartServiceIntent = Intent(applicationContext, AppMonitorService::class.java).also {
-            it.setPackage(packageName)
-        }
-        val restartServicePendingIntent = PendingIntent.getService(
-            this, 1, restartServiceIntent,
-            PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_IMMUTABLE
-        )
-        val alarmService = getSystemService(Context.ALARM_SERVICE) as AlarmManager
-        alarmService.set(
-            AlarmManager.RTC_WAKEUP,
-            System.currentTimeMillis() + 1000,
-            restartServicePendingIntent
-        )
+        scheduleImmediateRestartIfNeeded()
     }
 
     override fun onDestroy() {
+        scheduleImmediateRestartIfNeeded()
         super.onDestroy()
         scope.cancel()
         LocalBroadcastManager.getInstance(this).unregisterReceiver(updateReceiver)
+        try {
+            unregisterReceiver(screenReceiver)
+        } catch (_: Exception) {}
     }
 
     override fun onBind(intent: Intent?): IBinder? = null

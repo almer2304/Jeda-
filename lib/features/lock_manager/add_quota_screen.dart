@@ -4,9 +4,17 @@ import 'package:uuid/uuid.dart';
 import '../../core/models/quota_entry.dart';
 import '../../core/services/native_bridge_service.dart';
 import '../../core/services/storage_service.dart';
+import '../../core/theme/jeda_colors.dart';
+import '../../core/theme/jeda_radii.dart';
+import '../../core/theme/jeda_typography.dart';
+import '../../core/widgets/app_icon_widget.dart';
+import '../../core/widgets/jeda_badge.dart';
+import '../../core/widgets/jeda_button.dart';
 
 class AddQuotaScreen extends ConsumerStatefulWidget {
-  const AddQuotaScreen({super.key});
+  final QuotaEntry? editingQuota;
+
+  const AddQuotaScreen({super.key, this.editingQuota});
 
   @override
   ConsumerState<AddQuotaScreen> createState() => _AddQuotaScreenState();
@@ -15,6 +23,8 @@ class AddQuotaScreen extends ConsumerStatefulWidget {
 class _AddQuotaScreenState extends ConsumerState<AddQuotaScreen> {
   final _groupNameController = TextEditingController();
   final _searchController = TextEditingController();
+  final _goalController = TextEditingController();
+  final _descriptionController = TextEditingController();
 
   List<Map<String, dynamic>> _installedApps = [];
   List<Map<String, dynamic>> _filteredApps = [];
@@ -25,9 +35,26 @@ class _AddQuotaScreenState extends ConsumerState<AddQuotaScreen> {
   String? _error;
   int _quotaMinutes = 60; // Default 1 hour
 
+  bool get _isEditMode => widget.editingQuota != null;
+
   @override
   void initState() {
     super.initState();
+    final editing = widget.editingQuota;
+    if (editing != null) {
+      _groupNameController.text = editing.groupName;
+      _quotaMinutes = editing.dailyQuotaMinutes.clamp(15, 240);
+      for (int i = 0; i < editing.packageNames.length; i++) {
+        final pkg = editing.packageNames[i];
+        _selectedPackageNames.add(pkg);
+        _selectedAppNames[pkg] = i < editing.appNames.length ? editing.appNames[i] : pkg;
+      }
+      _goalController.text = editing.focusGoal ?? 'Membatasi pemakaian harian secara sadar';
+      _descriptionController.text = editing.description ?? '';
+    } else {
+      _goalController.text = 'Membatasi pemakaian harian secara sadar';
+      _descriptionController.text = 'Gunakan kuota harianmu dengan bijak, bukan sekadar pelarian saat bosan.';
+    }
     _loadApps();
     _searchController.addListener(_onSearchChanged);
   }
@@ -36,6 +63,8 @@ class _AddQuotaScreenState extends ConsumerState<AddQuotaScreen> {
   void dispose() {
     _groupNameController.dispose();
     _searchController.dispose();
+    _goalController.dispose();
+    _descriptionController.dispose();
     super.dispose();
   }
 
@@ -60,7 +89,7 @@ class _AddQuotaScreenState extends ConsumerState<AddQuotaScreen> {
     } catch (e) {
       if (mounted) {
         setState(() {
-          _error = 'Gagal memuat daftar aplikasi: $e';
+          _error = 'Gagal memuat daftar aplikasi perangkat.';
           _isLoading = false;
         });
       }
@@ -78,44 +107,61 @@ class _AddQuotaScreenState extends ConsumerState<AddQuotaScreen> {
   }
 
   Future<void> _saveQuota() async {
-    if (_groupNameController.text.trim().isEmpty) {
+    final groupName = _groupNameController.text.trim();
+    if (groupName.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Nama grup tidak boleh kosong!'), backgroundColor: Colors.red),
+        const SnackBar(
+          content: Text('Masukkan nama grup kuota terlebih dahulu.'),
+          backgroundColor: JedaColors.error,
+        ),
       );
       return;
     }
 
     if (_selectedPackageNames.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Pilih setidaknya 1 aplikasi!'), backgroundColor: Colors.red),
+        const SnackBar(
+          content: Text('Pilih minimal satu aplikasi untuk grup kuota ini.'),
+          backgroundColor: JedaColors.error,
+        ),
       );
       return;
     }
 
     final storage = ref.read(storageServiceProvider);
+    final goalText = _goalController.text.trim();
+    final descText = _descriptionController.text.trim();
+
     final entry = QuotaEntry(
-      id: const Uuid().v4(),
-      groupName: _groupNameController.text.trim(),
+      id: widget.editingQuota?.id ?? const Uuid().v4(),
+      groupName: groupName,
       packageNames: _selectedPackageNames.toList(),
       appNames: _selectedPackageNames.map((pkg) => _selectedAppNames[pkg] ?? pkg).toList(),
       dailyQuotaMinutes: _quotaMinutes,
-      lastResetDate: DateTime.now(),
-      emergencyTickets: 2,
-      lastTicketResetDate: DateTime.now(),
+      usedTodaySeconds: widget.editingQuota?.usedTodaySeconds ?? 0,
+      lastResetDate: widget.editingQuota?.lastResetDate ?? DateTime.now(),
+      emergencyTickets: widget.editingQuota?.emergencyTickets ?? 2,
+      lastTicketResetDate: widget.editingQuota?.lastTicketResetDate ?? DateTime.now(),
+      activeEmergencyUntil: widget.editingQuota?.activeEmergencyUntil,
+      focusGoal: goalText.isNotEmpty ? goalText : null,
+      description: descText.isNotEmpty ? descText : null,
     );
 
     await storage.addQuota(entry);
 
     final activeRules = storage.getActiveRules();
-    ref.read(nativeBridgeServiceProvider).startMonitoring(activeRules);
+    await ref.read(nativeBridgeServiceProvider).startMonitoring(activeRules);
+    await ref.read(nativeBridgeServiceProvider).updateBlockedList(activeRules);
 
     if (mounted) {
-      Navigator.of(context).pop();
+      Navigator.of(context).pop(entry);
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Kuota Harian disimpan 🌱'),
-          backgroundColor: Color(0xFF87A878),
-          duration: Duration(seconds: 2),
+        SnackBar(
+          content: Text(_isEditMode
+              ? 'Perubahan kuota "$groupName" berhasil disimpan 🌱'
+              : 'Aturan kuota harian berhasil disimpan'),
+          backgroundColor: JedaColors.primaryDark,
+          duration: const Duration(seconds: 2),
         ),
       );
     }
@@ -129,84 +175,145 @@ class _AddQuotaScreenState extends ConsumerState<AddQuotaScreen> {
     return '$hours Jam $mins Menit';
   }
 
+  Future<void> _openGoalSheet() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: JedaColors.surface,
+      shape: const RoundedRectangleBorder(borderRadius: JedaRadii.sheetTop),
+      builder: (ctx) {
+        return SafeArea(
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(
+              24,
+              12,
+              24,
+              MediaQuery.of(ctx).viewInsets.bottom + 24,
+            ),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 36,
+                      height: 4,
+                      margin: const EdgeInsets.only(bottom: 16),
+                      decoration: BoxDecoration(
+                        color: JedaColors.border,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  const Text('Tujuan & Pengingat Kuota Harian', style: JedaTypography.heading3),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _goalController,
+                    onChanged: (_) => setState(() {}),
+                    decoration: const InputDecoration(
+                      labelText: 'Tujuan Fokus (Goals)',
+                      hintText: 'Contoh: Hanya cek pesan penting maksimal 1 jam sehari',
+                      prefixIcon: Icon(Icons.flag_outlined, size: 18),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _descriptionController,
+                    maxLines: 3,
+                    onChanged: (_) => setState(() {}),
+                    decoration: const InputDecoration(
+                      labelText: 'Deskripsi / Pesan Pengingat Diri',
+                      hintText: 'Pesan untuk dirimu saat kuota harian habis...',
+                      alignLabelWithHint: true,
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  JedaButton(
+                    label: 'Simpan Tujuan',
+                    variant: JedaButtonVariant.primary,
+                    onPressed: () => Navigator.pop(ctx),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final isKeyboardOpen = MediaQuery.of(context).viewInsets.bottom > 0;
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F0E8),
-      resizeToAvoidBottomInset: true,
+      backgroundColor: JedaColors.background,
       appBar: AppBar(
-        title: const Text('Buat Kuota Harian 🌱', style: TextStyle(fontWeight: FontWeight.bold)),
-        backgroundColor: const Color(0xFFF5F0E8),
-        elevation: 0,
+        title: Text(
+          _isEditMode ? 'Edit Kuota Harian' : 'Buat Kuota Harian',
+          style: JedaTypography.heading3,
+        ),
       ),
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // Group Name Input
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Nama Grup Kuota',
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF2D2D2D)),
-                ),
-                const SizedBox(height: 6),
-                TextField(
-                  controller: _groupNameController,
-                  decoration: InputDecoration(
-                    hintText: 'Contoh: Sosmed & Hiburan',
-                    filled: true,
-                    fillColor: Colors.white,
-                    isDense: true,
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(16),
-                      borderSide: BorderSide.none,
-                    ),
-                  ),
-                ),
-              ],
+            padding: const EdgeInsets.fromLTRB(20, 8, 20, 10),
+            child: TextField(
+              controller: _groupNameController,
+              decoration: const InputDecoration(
+                labelText: 'Nama Grup Kuota',
+                hintText: 'Contoh: Media Sosial & Hiburan',
+              ),
             ),
           ),
+
+          // Search Field
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16.0),
+            padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 4.0),
             child: TextField(
               controller: _searchController,
               decoration: InputDecoration(
                 hintText: 'Cari aplikasi...',
-                prefixIcon: const Icon(Icons.search),
-                filled: true,
-                fillColor: Colors.white,
-                isDense: true,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(16),
-                  borderSide: BorderSide.none,
-                ),
-                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                prefixIcon: const Icon(Icons.search, size: 20, color: JedaColors.textTertiary),
+                suffixIcon: _searchController.text.isNotEmpty
+                    ? IconButton(
+                        icon: const Icon(Icons.close, size: 18),
+                        onPressed: () {
+                          _searchController.clear();
+                        },
+                      )
+                    : null,
               ),
             ),
           ),
-          const SizedBox(height: 8),
+
+          // Selection counter
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16.0),
+            padding: const EdgeInsets.fromLTRB(20, 10, 20, 6),
             child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  'Terpilih: ${_selectedPackageNames.length} aplikasi',
-                  style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF87A878)),
+                  'Pilih Aplikasi Terkait',
+                  style: JedaTypography.caption.copyWith(color: JedaColors.textPrimary, fontWeight: FontWeight.w600),
+                ),
+                JedaBadge(
+                  label: '${_selectedPackageNames.length} dipilih',
+                  variant: _selectedPackageNames.isNotEmpty ? JedaBadgeVariant.success : JedaBadgeVariant.neutral,
                 ),
               ],
             ),
           ),
-          const SizedBox(height: 4),
+
+          // App List
           Expanded(
             child: _isLoading
-                ? const Center(child: CircularProgressIndicator(color: Color(0xFF87A878)))
+                ? const Center(child: CircularProgressIndicator(strokeWidth: 2.2, color: JedaColors.primary))
                 : _error != null
-                    ? Center(child: Text(_error!))
+                    ? Center(child: Text(_error!, style: JedaTypography.bodySecondary))
                     : ListView.builder(
                         itemCount: _filteredApps.length,
                         itemBuilder: (context, index) {
@@ -215,19 +322,45 @@ class _AddQuotaScreenState extends ConsumerState<AddQuotaScreen> {
                           final name = app['name'] as String;
                           final isSelected = _selectedPackageNames.contains(pkg);
 
-                          return CheckboxListTile(
-                            value: isSelected,
-                            activeColor: const Color(0xFF87A878),
-                            title: Text(name, style: const TextStyle(fontWeight: FontWeight.w600)),
-                            subtitle: Text(pkg, style: const TextStyle(fontSize: 12, color: Colors.grey)),
-                            onChanged: (bool? val) {
+                          return ListTile(
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 2),
+                            leading: AppIconWidget(
+                              packageName: pkg,
+                              size: 38,
+                              backgroundColor: isSelected ? JedaColors.primarySoft : JedaColors.surfaceSecondary,
+                              fallbackIconColor: isSelected ? JedaColors.primaryDark : JedaColors.textSecondary,
+                            ),
+                            title: Text(name, style: JedaTypography.labelBold),
+                            subtitle: Text(
+                              pkg,
+                              style: JedaTypography.caption,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            trailing: Checkbox(
+                              value: isSelected,
+                              activeColor: JedaColors.primary,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+                              onChanged: (bool? val) {
+                                setState(() {
+                                  if (val == true) {
+                                    _selectedPackageNames.add(pkg);
+                                    _selectedAppNames[pkg] = name;
+                                  } else {
+                                    _selectedPackageNames.remove(pkg);
+                                    _selectedAppNames.remove(pkg);
+                                  }
+                                });
+                              },
+                            ),
+                            onTap: () {
                               setState(() {
-                                if (val == true) {
-                                  _selectedPackageNames.add(pkg);
-                                  _selectedAppNames[pkg] = name;
-                                } else {
+                                if (isSelected) {
                                   _selectedPackageNames.remove(pkg);
                                   _selectedAppNames.remove(pkg);
+                                } else {
+                                  _selectedPackageNames.add(pkg);
+                                  _selectedAppNames[pkg] = name;
                                 }
                               });
                             },
@@ -235,88 +368,88 @@ class _AddQuotaScreenState extends ConsumerState<AddQuotaScreen> {
                         },
                       ),
           ),
+
+          // Bottom Configuration Panel
           Container(
             padding: EdgeInsets.symmetric(
               horizontal: 20,
-              vertical: isKeyboardOpen ? 12 : 20,
+              vertical: isKeyboardOpen ? 12 : 18,
             ),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.05),
-                  blurRadius: 10,
-                  offset: const Offset(0, -4),
-                )
-              ],
+            decoration: const BoxDecoration(
+              color: JedaColors.surface,
+              borderRadius: JedaRadii.sheetTop,
+              border: Border(top: BorderSide(color: JedaColors.border)),
             ),
             child: SafeArea(
+              top: false,
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   if (!isKeyboardOpen) ...[
+                    InkWell(
+                      onTap: _openGoalSheet,
+                      borderRadius: JedaRadii.borderR12,
+                      child: Container(
+                        margin: const EdgeInsets.only(bottom: 12),
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+                        decoration: BoxDecoration(
+                          color: JedaColors.primarySoft.withValues(alpha: 0.55),
+                          borderRadius: JedaRadii.borderR12,
+                          border: Border.all(color: JedaColors.primary.withValues(alpha: 0.45)),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.psychology_outlined, size: 18, color: JedaColors.primaryDark),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                _goalController.text.trim().isNotEmpty
+                                    ? '🎯 Tujuan: ${_goalController.text.trim()}'
+                                    : '🎯 Tetapkan Tujuan & Pengingat Kuota',
+                                style: JedaTypography.caption.copyWith(
+                                  color: JedaColors.primaryDark,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            const Icon(Icons.edit_note_rounded, size: 18, color: JedaColors.primaryDark),
+                          ],
+                        ),
+                      ),
+                    ),
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        const Text('Jatah Waktu Harian:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                        const Text('Batas Kuota Harian', style: JedaTypography.labelBold),
                         Text(
                           _formatMinutes(_quotaMinutes),
-                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 17, color: Color(0xFF87A878)),
+                          style: JedaTypography.heading3.copyWith(color: JedaColors.primaryDark),
                         ),
                       ],
                     ),
                     Slider(
                       value: _quotaMinutes.toDouble(),
                       min: 15,
-                      max: 240, // 4 hours max
-                      divisions: 15, // 15-minute increments
-                      activeColor: const Color(0xFF87A878),
+                      max: 240, // 4 jam maksimal
+                      divisions: 15, // kelipatan 15 menit
+                      activeColor: JedaColors.primary,
+                      inactiveColor: JedaColors.surfaceSecondary,
                       onChanged: (val) {
                         setState(() {
                           _quotaMinutes = val.toInt();
                         });
                       },
                     ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFF5F0E8),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: const Row(
-                        children: [
-                          Icon(Icons.lock_outline, color: Color(0xFF87A878), size: 18),
-                          SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              "Termasuk 2 Pas Darurat / minggu. Aturan yang diset tidak dapat dihapus 🔒",
-                              style: TextStyle(fontSize: 11, color: Color(0xFF2D2D2D)),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 8),
                   ],
-                  SizedBox(
-                    width: double.infinity,
-                    height: isKeyboardOpen ? 46 : 52,
-                    child: ElevatedButton(
-                      onPressed: _selectedPackageNames.isEmpty ? null : _saveQuota,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF87A878),
-                        disabledBackgroundColor: Colors.grey[300],
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                      ),
-                      child: Text(
-                        'Simpan Kuota Harian 🌱',
-                        style: TextStyle(fontSize: isKeyboardOpen ? 15 : 17, fontWeight: FontWeight.bold),
-                      ),
-                    ),
+                  JedaButton(
+                    label: _selectedPackageNames.isEmpty
+                        ? 'Pilih Minimal Satu Aplikasi'
+                        : (_isEditMode ? 'Simpan Perubahan Kuota' : 'Simpan Kuota Harian'),
+                    onPressed: _selectedPackageNames.isEmpty ? null : _saveQuota,
+                    variant: JedaButtonVariant.primary,
                   ),
                 ],
               ),

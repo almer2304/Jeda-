@@ -35,7 +35,23 @@ class StorageService {
   }
 
   Future<List<LockEntry>> getActiveLocks() async {
-    return _lockBox.values.where((entry) => entry.isActive && !entry.isExpired).toList();
+    return getActiveLocksSync();
+  }
+
+  List<LockEntry> getActiveLocksSync() {
+    try {
+      return _lockBox.values.where((entry) => entry.isActive && !entry.isExpired).toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  List<QuotaEntry> getAllQuotasSync() {
+    try {
+      return _quotaBox.values.toList();
+    } catch (_) {
+      return [];
+    }
   }
 
   Future<void> cleanExpiredLocks() async {
@@ -142,29 +158,37 @@ class StorageService {
     final rules = <Map<String, dynamic>>[];
 
     // 1. LockEntry rules
-    final lockRules = _lockBox.values
-        .where((entry) => entry.isActive && !entry.isExpired)
-        .map((entry) {
-          if (entry.isScheduled) {
-            List<int> javaDays = entry.scheduledDays!.map((d) => d == 7 ? 1 : d + 1).toList();
-            return {
-              "packageName": entry.packageName,
-              "isScheduled": true,
-              "startHour": int.parse(entry.scheduledStart!.split(':')[0]),
-              "startMinute": int.parse(entry.scheduledStart!.split(':')[1]),
-              "endHour": int.parse(entry.scheduledEnd!.split(':')[0]),
-              "endMinute": int.parse(entry.scheduledEnd!.split(':')[1]),
-              "days": javaDays,
-            };
-          } else {
-            return {
-              "packageName": entry.packageName,
-              "isScheduled": false,
-              "endTimeMillis": entry.endTime.millisecondsSinceEpoch,
-            };
-          }
+    for (final entry in _lockBox.values.where((entry) => entry.isActive && !entry.isExpired)) {
+      if (entry.isScheduled) {
+        for (final interval in entry.allIntervals) {
+          final javaDays = interval.days.map((d) => d == 7 ? 1 : d + 1).toList();
+          final startParts = interval.start.split(':');
+          final endParts = interval.end.split(':');
+          rules.add({
+            "packageName": entry.packageName,
+            "groupName": entry.appName,
+            "isScheduled": true,
+            "intervalId": interval.id,
+            "startHour": int.parse(startParts[0]),
+            "startMinute": int.parse(startParts[1]),
+            "endHour": int.parse(endParts[0]),
+            "endMinute": int.parse(endParts[1]),
+            "days": javaDays,
+            if (entry.focusGoal != null && entry.focusGoal!.isNotEmpty) "focusGoal": entry.focusGoal!,
+            if (entry.description != null && entry.description!.isNotEmpty) "description": entry.description!,
+          });
+        }
+      } else {
+        rules.add({
+          "packageName": entry.packageName,
+          "groupName": entry.appName,
+          "isScheduled": false,
+          "endTimeMillis": entry.endTime.millisecondsSinceEpoch,
+          if (entry.focusGoal != null && entry.focusGoal!.isNotEmpty) "focusGoal": entry.focusGoal!,
+          if (entry.description != null && entry.description!.isNotEmpty) "description": entry.description!,
         });
-    rules.addAll(lockRules);
+      }
+    }
 
     // 2. QuotaEntry rules
     final now = DateTime.now();
@@ -184,6 +208,8 @@ class StorageService {
           "emergencyTickets": entry.emergencyTickets,
           "isEmergencyActive": entry.isEmergencyActive,
           "emergencyUntilMillis": entry.activeEmergencyUntil?.millisecondsSinceEpoch ?? 0,
+          if (entry.focusGoal != null && entry.focusGoal!.isNotEmpty) "focusGoal": entry.focusGoal!,
+          if (entry.description != null && entry.description!.isNotEmpty) "description": entry.description!,
         });
       }
     }
@@ -212,12 +238,28 @@ class StorageService {
     await _statsBox.put('hours_saved', currentHours + hours);
   }
 
+  int getTotalHoursSavedSync() {
+    try {
+      return _statsBox.get('hours_saved', defaultValue: 0) as int;
+    } catch (_) {
+      return 0;
+    }
+  }
+
   Future<int> getTotalHoursSaved() async {
-    return _statsBox.get('hours_saved', defaultValue: 0) as int;
+    return getTotalHoursSavedSync();
+  }
+
+  int getStreakDaysSync() {
+    try {
+      return _statsBox.get('streak_days', defaultValue: 0) as int;
+    } catch (_) {
+      return 0;
+    }
   }
 
   Future<int> getStreakDays() async {
-    return _statsBox.get('streak_days', defaultValue: 0) as int;
+    return getStreakDaysSync();
   }
 
   Future<void> saveStreakDays(int days) async {
@@ -225,10 +267,47 @@ class StorageService {
   }
 
   bool isOnboardingDone() {
-    return _statsBox.get('onboarding_done', defaultValue: false) as bool;
+    try {
+      return _statsBox.get('onboarding_done', defaultValue: false) as bool;
+    } catch (_) {
+      return false;
+    }
   }
 
   Future<void> setOnboardingDone(bool done) async {
     await _statsBox.put('onboarding_done', done);
+  }
+
+  // =========================================================================
+  // PSYCHOLOGICAL COMMITMENT: 4-DAY DELETION COOLDOWN (1 DELETE PER 4 DAYS)
+  // =========================================================================
+  static const Duration deletionCooldownDuration = Duration(days: 4);
+
+  DateTime? getLastDeletionTime() {
+    try {
+      final millis = _statsBox.get('last_lock_deletion_millis') as int?;
+      if (millis == null || millis <= 0) return null;
+      return DateTime.fromMillisecondsSinceEpoch(millis);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  bool canDeleteLockNow() {
+    final lastDeletion = getLastDeletionTime();
+    if (lastDeletion == null) return true;
+    return DateTime.now().difference(lastDeletion) >= deletionCooldownDuration;
+  }
+
+  Duration getRemainingDeletionCooldown() {
+    final lastDeletion = getLastDeletionTime();
+    if (lastDeletion == null) return Duration.zero;
+    final unlockTime = lastDeletion.add(deletionCooldownDuration);
+    final diff = unlockTime.difference(DateTime.now());
+    return diff.isNegative ? Duration.zero : diff;
+  }
+
+  Future<void> recordLockDeletion() async {
+    await _statsBox.put('last_lock_deletion_millis', DateTime.now().millisecondsSinceEpoch);
   }
 }

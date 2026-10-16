@@ -27,13 +27,15 @@ class QuotaEntryAdapter extends TypeAdapter<QuotaEntry> {
       emergencyTickets: fields[7] == null ? 2 : fields[7] as int,
       lastTicketResetDate: fields[8] as DateTime,
       activeEmergencyUntil: fields[9] as DateTime?,
+      focusGoal: fields[10] as String?,
+      description: fields[11] as String?,
     );
   }
 
   @override
   void write(BinaryWriter writer, QuotaEntry obj) {
     writer
-      ..writeByte(10)
+      ..writeByte(12)
       ..writeByte(0)
       ..write(obj.id)
       ..writeByte(1)
@@ -53,7 +55,11 @@ class QuotaEntryAdapter extends TypeAdapter<QuotaEntry> {
       ..writeByte(8)
       ..write(obj.lastTicketResetDate)
       ..writeByte(9)
-      ..write(obj.activeEmergencyUntil);
+      ..write(obj.activeEmergencyUntil)
+      ..writeByte(10)
+      ..write(obj.focusGoal)
+      ..writeByte(11)
+      ..write(obj.description);
   }
 
   @override

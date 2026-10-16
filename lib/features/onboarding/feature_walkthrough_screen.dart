@@ -159,7 +159,7 @@ class _FeatureWalkthroughScreenState extends State<FeatureWalkthroughScreen> {
                       Container(
                         padding: const EdgeInsets.all(6),
                         decoration: BoxDecoration(
-                          color: const Color(0xFF87A878).withOpacity(0.15),
+                          color: const Color(0xFF87A878).withValues(alpha: 0.15),
                           borderRadius: BorderRadius.circular(10),
                         ),
                         child: const Text('🌿', style: TextStyle(fontSize: 18)),
@@ -291,7 +291,7 @@ class _FeatureWalkthroughScreenState extends State<FeatureWalkthroughScreen> {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
             decoration: BoxDecoration(
-              color: const Color(0xFF87A878).withOpacity(0.12),
+              color: const Color(0xFF87A878).withValues(alpha: 0.12),
               borderRadius: BorderRadius.circular(20),
             ),
             child: Text(
@@ -315,7 +315,7 @@ class _FeatureWalkthroughScreenState extends State<FeatureWalkthroughScreen> {
               shape: BoxShape.circle,
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.06),
+                  color: Colors.black.withValues(alpha: 0.06),
                   blurRadius: 16,
                   offset: const Offset(0, 6),
                 ),
@@ -363,7 +363,7 @@ class _FeatureWalkthroughScreenState extends State<FeatureWalkthroughScreen> {
                   borderRadius: BorderRadius.circular(16),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withOpacity(0.03),
+                      color: Colors.black.withValues(alpha: 0.03),
                       blurRadius: 8,
                       offset: const Offset(0, 2),
                     ),

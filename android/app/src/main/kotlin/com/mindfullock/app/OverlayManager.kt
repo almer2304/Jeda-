@@ -1,5 +1,8 @@
 package com.mindfullock.app
 
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.graphics.Color
@@ -14,10 +17,15 @@ import android.view.View
 import android.view.ViewTreeObserver
 import android.view.WindowManager
 import android.widget.Button
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
+import androidx.core.app.NotificationCompat
 import androidx.localbroadcastmanager.content.LocalBroadcastManager
 import org.json.JSONObject
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 class OverlayManager private constructor(context: Context) {
     private val appContext = context.applicationContext
@@ -28,6 +36,7 @@ class OverlayManager private constructor(context: Context) {
     @Volatile
     private var isOverlayShowing = false
     private var countDownTimer: CountDownTimer? = null
+    private var pendingHomeHideRunnable: Runnable? = null
 
     @Volatile
     var lastHomeClickTime = 0L
@@ -35,6 +44,8 @@ class OverlayManager private constructor(context: Context) {
     @Volatile
     var lastBlockedPackageName = ""
         private set
+    @Volatile
+    private var lastAttemptIncrementTime = 0L
 
     companion object {
         @Volatile
@@ -57,10 +68,7 @@ class OverlayManager private constructor(context: Context) {
     }
 
     fun isExitingBlockedApp(packageName: String): Boolean {
-        if (lastHomeClickTime == 0L) return false
-        val elapsed = System.currentTimeMillis() - lastHomeClickTime
-        // 3 seconds grace period to allow full transition to launcher
-        return elapsed < 3000
+        return false
     }
 
     fun showOverlay(packageName: String) {
@@ -69,10 +77,12 @@ class OverlayManager private constructor(context: Context) {
             return
         }
 
-        if (isExitingBlockedApp(packageName)) return
-
-        mainHandler.post {
+        if (Looper.myLooper() == Looper.getMainLooper()) {
             showOverlayInternal(packageName)
+        } else {
+            mainHandler.post {
+                showOverlayInternal(packageName)
+            }
         }
     }
 
@@ -82,7 +92,10 @@ class OverlayManager private constructor(context: Context) {
             return
         }
 
-        if (isExitingBlockedApp(packageName)) return
+        pendingHomeHideRunnable?.let {
+            mainHandler.removeCallbacks(it)
+            pendingHomeHideRunnable = null
+        }
 
         // Sync state: if view is gone but flag is stale, reset
         if (isOverlayShowing && overlayView == null) {
@@ -96,6 +109,7 @@ class OverlayManager private constructor(context: Context) {
 
         val ruleInfo = BlockRulesManager.getRuleForPackage(packageName)
         val isQuota = ruleInfo?.optBoolean("isQuota", false) ?: false
+        val dailyCount = incrementAndGetDailyAttemptCount()
 
         try {
             val windowLayoutParams = WindowManager.LayoutParams(
@@ -119,6 +133,21 @@ class OverlayManager private constructor(context: Context) {
                 setBackgroundColor(Color.parseColor("#F5F0E8"))
             }
 
+            var appIconView: View? = null
+            try {
+                val iconDrawable = appContext.packageManager.getApplicationIcon(packageName)
+                val iconSize = (72 * appContext.resources.displayMetrics.density).toInt()
+                appIconView = ImageView(appContext).apply {
+                    setImageDrawable(iconDrawable)
+                    layoutParams = LinearLayout.LayoutParams(iconSize, iconSize).apply {
+                        gravity = Gravity.CENTER_HORIZONTAL
+                        bottomMargin = (8 * appContext.resources.displayMetrics.density).toInt()
+                    }
+                }
+            } catch (e: Exception) {
+                appIconView = null
+            }
+
             val emojiText = TextView(appContext).apply {
                 text = if (isQuota) "⏳" else "🌿"
                 textSize = 64f
@@ -135,15 +164,69 @@ class OverlayManager private constructor(context: Context) {
             }
 
             val groupName = ruleInfo?.optString("groupName", "aplikasi ini") ?: "aplikasi ini"
+            val appLabel = resolveAppLabel(packageName, groupName)
+            val focusGoal = ruleInfo?.optString("focusGoal", "") ?: ""
+            val userDescription = ruleInfo?.optString("description", "") ?: ""
+
             val subText = TextView(appContext).apply {
                 text = if (isQuota)
-                    "Kamu telah menggunakan jatah waktu harian untuk $groupName. Gunakan waktumu dengan bijak hari ini 🌱"
+                    "Kamu telah menggunakan jatah waktu harian untuk $appLabel. Gunakan waktumu dengan bijak hari ini 🌱"
                 else
-                    "Kamu memilih mengunci $groupName. Tunggu sampai waktunya habis ya!"
+                    "Kamu memilih mengunci $appLabel demi ketenangan dan fokusmu. Tarik napas sejenak sebelum memutuskan."
                 textSize = 14f
                 setTextColor(Color.parseColor("#2D2D2D"))
                 gravity = Gravity.CENTER
-                setPadding(32, 0, 32, 32)
+                setPadding(36, 0, 36, 12)
+                textAlignment = View.TEXT_ALIGNMENT_CENTER
+            }
+
+            var psychBox: LinearLayout? = null
+            if (focusGoal.isNotEmpty() || userDescription.isNotEmpty()) {
+                psychBox = LinearLayout(appContext).apply {
+                    orientation = LinearLayout.VERTICAL
+                    gravity = Gravity.CENTER
+                    setBackgroundColor(Color.parseColor("#EAE3D5"))
+                    setPadding(36, 24, 36, 24)
+                    layoutParams = LinearLayout.LayoutParams(
+                        LinearLayout.LayoutParams.MATCH_PARENT,
+                        LinearLayout.LayoutParams.WRAP_CONTENT
+                    ).apply {
+                        setMargins(64, 4, 64, 16)
+                    }
+                    if (focusGoal.isNotEmpty()) {
+                        addView(TextView(appContext).apply {
+                            text = "🎯 Tujuan Fokusmu: $focusGoal"
+                            textSize = 13f
+                            setTextColor(Color.parseColor("#2D2D2D"))
+                            paint.isFakeBoldText = true
+                            gravity = Gravity.CENTER
+                            textAlignment = View.TEXT_ALIGNMENT_CENTER
+                        })
+                    }
+                    if (userDescription.isNotEmpty()) {
+                        addView(TextView(appContext).apply {
+                            text = "“$userDescription”"
+                            textSize = 12f
+                            setTextColor(Color.parseColor("#5A554C"))
+                            gravity = Gravity.CENTER
+                            textAlignment = View.TEXT_ALIGNMENT_CENTER
+                            setPadding(0, if (focusGoal.isNotEmpty()) 8 else 0, 0, 0)
+                        })
+                    }
+                }
+            }
+
+            val toleranceText = TextView(appContext).apply {
+                text = if (dailyCount < 5) {
+                    "🌱 Toleransi lupa hari ini: $dailyCount/4 kali (Streak fokusmu masih aman)"
+                } else {
+                    "⚠️ Batas toleransi terlampaui ($dailyCount kali hari ini). Streak fokusmu terputus!"
+                }
+                textSize = 12f
+                setTextColor(if (dailyCount < 5) Color.parseColor("#5C7A50") else Color.parseColor("#C94A4A"))
+                paint.isFakeBoldText = true
+                gravity = Gravity.CENTER
+                setPadding(40, 0, 40, 28)
                 textAlignment = View.TEXT_ALIGNMENT_CENTER
             }
 
@@ -164,14 +247,33 @@ class OverlayManager private constructor(context: Context) {
                 setTextColor(Color.WHITE)
                 setOnClickListener {
                     notifyHomeClicked()
-                    hideOverlayInternal()
                     UsageStatsHelper.resetCache()
                     JedaAccessibilityService.clearBlockedState()
-                    val homeIntent = Intent(Intent.ACTION_MAIN).apply {
-                        addCategory(Intent.CATEGORY_HOME)
-                        flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED
+
+                    val sentHome = JedaAccessibilityService.sendUserToHome()
+                    if (!sentHome) {
+                        val homeIntent = Intent(Intent.ACTION_MAIN).apply {
+                            addCategory(Intent.CATEGORY_HOME)
+                            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED
+                        }
+                        appContext.startActivity(homeIntent)
                     }
-                    appContext.startActivity(homeIntent)
+
+                    // Keep overlay view briefly during OS transition to launcher, then cleanly remove
+                    pendingHomeHideRunnable?.let { mainHandler.removeCallbacks(it) }
+                    val hideRunnable = Runnable {
+                        hideOverlayInternal()
+                        pendingHomeHideRunnable = null
+                    }
+                    pendingHomeHideRunnable = hideRunnable
+                    mainHandler.postDelayed(hideRunnable, 150)
+
+                    // If user exceeded tolerance (>= 5 times), pop a WhatsApp-style heads-up notification on Home Screen
+                    if (dailyCount >= 5) {
+                        mainHandler.postDelayed({
+                            showToleranceExceededHeadsUpNotification(packageName, appLabel, dailyCount)
+                        }, 400)
+                    }
                 }
             }
             btnContainer.addView(backButton)
@@ -249,9 +351,15 @@ class OverlayManager private constructor(context: Context) {
                 }
             }
 
-            rootLayout.addView(emojiText)
+            if (appIconView != null) {
+                rootLayout.addView(appIconView)
+            } else {
+                rootLayout.addView(emojiText)
+            }
             rootLayout.addView(titleText)
             rootLayout.addView(subText)
+            psychBox?.let { rootLayout.addView(it) }
+            rootLayout.addView(toleranceText)
             rootLayout.addView(btnContainer)
 
             rootLayout.viewTreeObserver.addOnWindowAttachListener(object : ViewTreeObserver.OnWindowAttachListener {
@@ -270,6 +378,10 @@ class OverlayManager private constructor(context: Context) {
             windowManager.addView(overlayView, windowLayoutParams)
             isOverlayShowing = true
 
+            if (dailyCount >= 5) {
+                showToleranceExceededHeadsUpNotification(packageName, appLabel, dailyCount)
+            }
+
         } catch (e: WindowManager.BadTokenException) {
             isOverlayShowing = false
             overlayView = null
@@ -281,14 +393,107 @@ class OverlayManager private constructor(context: Context) {
         }
     }
 
+    private fun incrementAndGetDailyAttemptCount(): Int {
+        val prefs = appContext.getSharedPreferences("JedaNativePrefs", Context.MODE_PRIVATE)
+        val today = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
+        val savedDate = prefs.getString("daily_attempt_date", "") ?: ""
+        var count = if (savedDate == today) prefs.getInt("daily_attempt_count", 0) else 0
+
+        val now = System.currentTimeMillis()
+        if (now - lastAttemptIncrementTime > 3000L) {
+            count += 1
+            lastAttemptIncrementTime = now
+            prefs.edit()
+                .putString("daily_attempt_date", today)
+                .putInt("daily_attempt_count", count)
+                .apply()
+        }
+        return count.coerceAtLeast(1)
+    }
+
+    private fun resolveAppLabel(packageName: String, fallback: String): String {
+        return try {
+            val pm = appContext.packageManager
+            val appInfo = pm.getApplicationInfo(packageName, 0)
+            pm.getApplicationLabel(appInfo).toString()
+        } catch (e: Exception) {
+            fallback
+        }
+    }
+
+    private fun showToleranceExceededHeadsUpNotification(packageName: String, appLabel: String, attemptCount: Int) {
+        try {
+            val notificationManager = appContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            val channelId = "jeda_streak_heads_up_v2"
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                val channel = NotificationChannel(
+                    channelId,
+                    "Peringatan Streak & Fokus",
+                    NotificationManager.IMPORTANCE_HIGH
+                ).apply {
+                    description = "Notifikasi pop-up saat batas toleransi membuka aplikasi terkunci terlampaui"
+                    enableVibration(true)
+                    vibrationPattern = longArrayOf(0, 300, 150, 300)
+                }
+                notificationManager.createNotificationChannel(channel)
+            }
+
+            val launchIntent = appContext.packageManager.getLaunchIntentForPackage(appContext.packageName)?.apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            }
+
+            val pendingIntent = if (launchIntent != null) {
+                PendingIntent.getActivity(
+                    appContext,
+                    2005,
+                    launchIntent,
+                    PendingIntent.FLAG_UPDATE_CURRENT or (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0)
+                )
+            } else null
+
+            val title = "⚠️ Batas Toleransi Terlampaui (${attemptCount}x Hari Ini)"
+            val shortBody = "Kamu sudah $attemptCount kali mencoba membuka $appLabel. Streak fokusmu terputus!"
+            val bigBody = "Kamu sudah $attemptCount kali mencoba membuka $appLabel yang sedang dikunci hari ini (batas toleransi lupa maks. 4x). Streak fokusmu telah di-reset. Yuk simpan HP-mu dan kembali fokus! 🌱"
+
+            val builder = NotificationCompat.Builder(appContext, channelId)
+                .setSmallIcon(R.mipmap.ic_launcher)
+                .setContentTitle(title)
+                .setContentText(shortBody)
+                .setStyle(NotificationCompat.BigTextStyle().bigText(bigBody))
+                .setPriority(NotificationCompat.PRIORITY_MAX)
+                .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+                .setDefaults(NotificationCompat.DEFAULT_ALL)
+                .setVibrate(longArrayOf(0, 300, 150, 300))
+                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                .setAutoCancel(true)
+
+            if (pendingIntent != null) {
+                builder.setContentIntent(pendingIntent)
+            }
+
+            notificationManager.notify(9005, builder.build())
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
     fun hideOverlay() {
-        mainHandler.post {
+        if (Looper.myLooper() == Looper.getMainLooper()) {
             hideOverlayInternal()
+        } else {
+            mainHandler.post {
+                hideOverlayInternal()
+            }
         }
     }
 
     private fun hideOverlayInternal() {
         try {
+            pendingHomeHideRunnable?.let {
+                mainHandler.removeCallbacks(it)
+                pendingHomeHideRunnable = null
+            }
             countDownTimer?.cancel()
             countDownTimer = null
             if (overlayView != null) {

@@ -9,6 +9,10 @@ import java.util.Calendar
 
 object BlockRulesManager {
     private val blockedRules = mutableListOf<JSONObject>()
+    @Volatile
+    private var lastLoadedJson: String? = null
+    @Volatile
+    private var lastQuotaTickMillis: Long = 0L
 
     private fun getTodayDateString(): String {
         val calendar = Calendar.getInstance()
@@ -18,6 +22,7 @@ object BlockRulesManager {
         return String.format("%04d-%02d-%02d", year, month, day)
     }
 
+    @Synchronized
     fun checkAndResetDailyQuotas(context: Context? = null) {
         val todayStr = getTodayDateString()
         var updated = false
@@ -34,8 +39,10 @@ object BlockRulesManager {
         if (updated && context != null) {
             try {
                 val jsonArray = JSONArray(blockedRules)
+                val newJson = jsonArray.toString()
+                lastLoadedJson = newJson
                 val prefs = context.getSharedPreferences("JedaNativePrefs", Context.MODE_PRIVATE)
-                prefs.edit().putString("blocked_rules_json", jsonArray.toString()).apply()
+                prefs.edit().putString("blocked_rules_json", newJson).apply()
 
                 val intent = Intent("QUOTA_RESET_EVENT")
                 LocalBroadcastManager.getInstance(context).sendBroadcast(intent)
@@ -45,12 +52,15 @@ object BlockRulesManager {
         }
     }
 
+    @Synchronized
     fun loadRules(context: Context) {
         try {
             val prefs = context.getSharedPreferences("JedaNativePrefs", Context.MODE_PRIVATE)
             val jsonString = prefs.getString("blocked_rules_json", null)
             if (jsonString != null) {
-                updateRules(jsonString)
+                if (jsonString != lastLoadedJson || blockedRules.isEmpty()) {
+                    updateRules(jsonString)
+                }
             }
             checkAndResetDailyQuotas(context)
         } catch (e: Exception) {
@@ -58,6 +68,7 @@ object BlockRulesManager {
         }
     }
 
+    @Synchronized
     fun updateRules(jsonString: String) {
         try {
             val array = JSONArray(jsonString)
@@ -65,26 +76,35 @@ object BlockRulesManager {
             for (i in 0 until array.length()) {
                 blockedRules.add(array.getJSONObject(i))
             }
+            lastLoadedJson = jsonString
             checkAndResetDailyQuotas(null)
         } catch (e: Exception) {
             e.printStackTrace()
         }
     }
 
+    @Synchronized
     fun getRuleForPackage(packageName: String): JSONObject? {
+        var fallback: JSONObject? = null
         for (rule in blockedRules) {
             if (rule.optString("packageName") == packageName) {
-                return rule
+                if (checkRuleBlocked(rule)) {
+                    return rule
+                }
+                if (fallback == null) {
+                    fallback = rule
+                }
             }
         }
-        return null
+        return fallback
     }
 
+    @Synchronized
     fun isAppBlocked(packageName: String, context: Context? = null): Boolean {
-        if (blockedRules.isEmpty() && context != null) {
+        if (context != null) {
             loadRules(context)
         } else {
-            checkAndResetDailyQuotas(context)
+            checkAndResetDailyQuotas(null)
         }
 
         for (rule in blockedRules) {
@@ -95,6 +115,12 @@ object BlockRulesManager {
             }
         }
         return false
+    }
+
+    @Synchronized
+    fun hasAnyActiveRules(context: Context): Boolean {
+        loadRules(context)
+        return blockedRules.isNotEmpty()
     }
 
     private fun checkRuleBlocked(rule: JSONObject): Boolean {
@@ -121,19 +147,31 @@ object BlockRulesManager {
             val endMin = rule.optInt("endHour") * 60 + rule.optInt("endMinute")
             
             val daysArray = rule.optJSONArray("days") ?: JSONArray()
-            var dayMatch = false
-            for (i in 0 until daysArray.length()) {
-                if (daysArray.getInt(i) == currentDay) {
-                    dayMatch = true
-                    break
+            val hasDay: (Int) -> Boolean = { day ->
+                var found = false
+                for (i in 0 until daysArray.length()) {
+                    if (daysArray.getInt(i) == day) {
+                        found = true
+                        break
+                    }
                 }
+                found
             }
             
-            if (dayMatch) {
-                if (startMin <= endMin) {
-                    if (currentTimeMin in startMin..endMin) return true
-                } else {
-                    if (currentTimeMin >= startMin || currentTimeMin <= endMin) return true
+            if (startMin <= endMin) {
+                if (hasDay(currentDay) && currentTimeMin in startMin..endMin) {
+                    return true
+                }
+            } else {
+                // Interval crosses midnight (e.g. 19:30 to 16:35)
+                // Part A: Started today before midnight
+                if (hasDay(currentDay) && currentTimeMin >= startMin) {
+                    return true
+                }
+                // Part B: Started yesterday and ending today after midnight
+                val prevDay = if (currentDay == Calendar.SUNDAY) Calendar.SATURDAY else currentDay - 1
+                if (hasDay(prevDay) && currentTimeMin <= endMin) {
+                    return true
                 }
             }
         } else {
@@ -145,8 +183,20 @@ object BlockRulesManager {
         return false
     }
 
+    @Synchronized
     fun incrementQuotaUsage(packageName: String, seconds: Int, context: Context? = null) {
-        checkAndResetDailyQuotas(context)
+        val now = System.currentTimeMillis()
+        if (now - lastQuotaTickMillis < 850L) {
+            return // Debounce when both AccessibilityService and AppMonitorService are active
+        }
+        lastQuotaTickMillis = now
+
+        if (context != null) {
+            loadRules(context)
+        } else {
+            checkAndResetDailyQuotas(null)
+        }
+
         var updated = false
         for (rule in blockedRules) {
             if (rule.optString("packageName") == packageName && rule.optBoolean("isQuota", false)) {
@@ -158,8 +208,10 @@ object BlockRulesManager {
         if (updated && context != null) {
             try {
                 val jsonArray = JSONArray(blockedRules)
+                val newJson = jsonArray.toString()
+                lastLoadedJson = newJson
                 val prefs = context.getSharedPreferences("JedaNativePrefs", Context.MODE_PRIVATE)
-                prefs.edit().putString("blocked_rules_json", jsonArray.toString()).apply()
+                prefs.edit().putString("blocked_rules_json", newJson).apply()
 
                 val intent = Intent("QUOTA_USAGE_TICK")
                 intent.putExtra("package_name", packageName)

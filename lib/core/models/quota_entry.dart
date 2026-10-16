@@ -34,6 +34,12 @@ class QuotaEntry {
   @HiveField(9)
   DateTime? activeEmergencyUntil;
 
+  @HiveField(10)
+  final String? focusGoal;
+
+  @HiveField(11)
+  final String? description;
+
   QuotaEntry({
     required this.id,
     required this.groupName,
@@ -45,6 +51,8 @@ class QuotaEntry {
     this.emergencyTickets = 2,
     required this.lastTicketResetDate,
     this.activeEmergencyUntil,
+    this.focusGoal,
+    this.description,
   });
 
   bool get isQuotaExhausted => usedTodaySeconds >= (dailyQuotaMinutes * 60);
@@ -53,6 +61,8 @@ class QuotaEntry {
     if (activeEmergencyUntil == null) return false;
     return DateTime.now().isBefore(activeEmergencyUntil!);
   }
+
+  bool get isCurrentlyBlocking => isQuotaExhausted && !isEmergencyActive;
 
   int get remainingSeconds {
     final remaining = (dailyQuotaMinutes * 60) - usedTodaySeconds;

@@ -231,9 +231,8 @@ class ApiService {
         ApiConstants.syncLocks,
         data: {'locks': locks},
       );
-    } on DioException catch (e) {
+    } on DioException catch (_) {
       // Non-blocking sync error
-      print("Sync locks API error: ${e.message}");
     }
   }
 

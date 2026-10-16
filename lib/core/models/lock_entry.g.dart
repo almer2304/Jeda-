@@ -29,13 +29,17 @@ class LockEntryAdapter extends TypeAdapter<LockEntry> {
       scheduledEnd: fields[9] as String?,
       scheduledDays:
           fields[10] == null ? [] : (fields[10] as List?)?.cast<int>(),
+      intervalsJson:
+          fields[11] == null ? [] : (fields[11] as List?)?.cast<String>(),
+      focusGoal: fields[12] as String?,
+      description: fields[13] as String?,
     );
   }
 
   @override
   void write(BinaryWriter writer, LockEntry obj) {
     writer
-      ..writeByte(11)
+      ..writeByte(14)
       ..writeByte(0)
       ..write(obj.id)
       ..writeByte(1)
@@ -57,7 +61,13 @@ class LockEntryAdapter extends TypeAdapter<LockEntry> {
       ..writeByte(9)
       ..write(obj.scheduledEnd)
       ..writeByte(10)
-      ..write(obj.scheduledDays);
+      ..write(obj.scheduledDays)
+      ..writeByte(11)
+      ..write(obj.intervalsJson)
+      ..writeByte(12)
+      ..write(obj.focusGoal)
+      ..writeByte(13)
+      ..write(obj.description);
   }
 
   @override

@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -9,13 +10,30 @@ class NativeBridgeService {
   static const _channel = MethodChannel('com.mindfullock/control');
   static const _eventChannel = EventChannel('com.mindfullock/app_events');
 
+  Future<Uint8List?> getAppIcon(String packageName) async {
+    try {
+      final dynamic result = await _channel.invokeMethod('getAppIcon', {
+        'packageName': packageName,
+      });
+      if (result is Uint8List) {
+        return result;
+      } else if (result is List<dynamic>) {
+        return Uint8List.fromList(result.cast<int>());
+      }
+      return null;
+    } catch (e) {
+      debugPrint("Failed to get app icon for $packageName: '$e'.");
+      return null;
+    }
+  }
+
   Future<void> startMonitoring(List<Map<String, dynamic>> blockedRules) async {
     try {
       await _channel.invokeMethod('startMonitoring', {
         'blocked_packages': blockedRules,
       });
     } on PlatformException catch (e) {
-      print("Failed to start monitoring: '${e.message}'.");
+      debugPrint("Failed to start monitoring: '${e.message}'.");
     }
   }
 
@@ -23,7 +41,7 @@ class NativeBridgeService {
     try {
       await _channel.invokeMethod('stopMonitoring');
     } on PlatformException catch (e) {
-      print("Failed to stop monitoring: '${e.message}'.");
+      debugPrint("Failed to stop monitoring: '${e.message}'.");
     }
   }
 
@@ -33,7 +51,7 @@ class NativeBridgeService {
         'blocked_packages': rules,
       });
     } on PlatformException catch (e) {
-      print("Failed to update blocked list: '${e.message}'.");
+      debugPrint("Failed to update blocked list: '${e.message}'.");
     }
   }
 
@@ -54,7 +72,7 @@ class NativeBridgeService {
         'vpn': vpn,
       };
     } on PlatformException catch (e) {
-      print("Failed to check permissions: '${e.message}'.");
+      debugPrint("Failed to check permissions: '${e.message}'.");
       return {'usage': false, 'overlay': false, 'battery': false, 'deviceAdmin': false, 'accessibility': false, 'vpn': false};
     }
   }
@@ -79,7 +97,7 @@ class NativeBridgeService {
           break;
       }
     } on PlatformException catch (e) {
-      print("Failed to open settings for $type: '${e.message}'.");
+      debugPrint("Failed to open settings for $type: '${e.message}'.");
     }
   }
 
@@ -87,7 +105,7 @@ class NativeBridgeService {
     try {
       await _channel.invokeMethod('removeDeviceAdmin');
     } on PlatformException catch (e) {
-      print("Failed to remove device admin: '${e.message}'.");
+      debugPrint("Failed to remove device admin: '${e.message}'.");
     }
   }
 
@@ -99,7 +117,7 @@ class NativeBridgeService {
       }
       return [];
     } catch (e) {
-      print("Failed to get installed apps: '\$e'.");
+      debugPrint("Failed to get installed apps: '$e'.");
       return [];
     }
   }
@@ -108,7 +126,7 @@ class NativeBridgeService {
     try {
       await _channel.invokeMethod('startVpnService');
     } on PlatformException catch (e) {
-      print("Failed to start VPN service: '${e.message}'.");
+      debugPrint("Failed to start VPN service: '${e.message}'.");
     }
   }
 
@@ -116,7 +134,7 @@ class NativeBridgeService {
     try {
       await _channel.invokeMethod('stopVpnService');
     } on PlatformException catch (e) {
-      print("Failed to stop VPN service: '${e.message}'.");
+      debugPrint("Failed to stop VPN service: '${e.message}'.");
     }
   }
 
@@ -128,7 +146,7 @@ class NativeBridgeService {
       }
       return {};
     } catch (e) {
-      print("Failed to get native quota usage: $e");
+      debugPrint("Failed to get native quota usage: $e");
       return {};
     }
   }

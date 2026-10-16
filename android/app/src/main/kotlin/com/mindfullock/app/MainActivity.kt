@@ -19,6 +19,10 @@ import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.drawable.BitmapDrawable
+import java.io.ByteArrayOutputStream
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -83,6 +87,12 @@ class MainActivity : FlutterActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         
+        if (Build.VERSION.SDK_INT >= 33) {
+            if (checkSelfPermission("android.permission.POST_NOTIFICATIONS") != PackageManager.PERMISSION_GRANTED) {
+                requestPermissions(arrayOf("android.permission.POST_NOTIFICATIONS"), 1005)
+            }
+        }
+
         val filter = IntentFilter()
         filter.addAction("APP_BLOCKED_EVENT")
         filter.addAction("JEDA_ADMIN_DISABLE_REQUESTED")
@@ -91,6 +101,25 @@ class MainActivity : FlutterActivity() {
         LocalBroadcastManager.getInstance(this).registerReceiver(blockEventReceiver, filter)
         // Also register globally for the device admin broadcast
         registerReceiver(blockEventReceiver, IntentFilter("JEDA_ADMIN_DISABLE_REQUESTED"))
+
+        // Pre-load rules and ensure AppMonitorService runs if rules are present
+        BlockRulesManager.loadRules(this)
+        val initialPrefs = getSharedPreferences("JedaNativePrefs", Context.MODE_PRIVATE)
+        val savedRulesJson = initialPrefs.getString("blocked_rules_json", null)
+        if (savedRulesJson != null && savedRulesJson != "[]") {
+            try {
+                val serviceIntent = Intent(this, AppMonitorService::class.java).apply {
+                    putExtra("blocked_packages", savedRulesJson)
+                }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    startForegroundService(serviceIntent)
+                } else {
+                    startService(serviceIntent)
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
 
         EventChannel(flutterEngine.dartExecutor.binaryMessenger, EVENT_CHANNEL).setStreamHandler(
             object : EventChannel.StreamHandler {
@@ -126,7 +155,11 @@ class MainActivity : FlutterActivity() {
                                 }
                                 jsonArray.put(obj)
                             }
-                            intent.putExtra("blocked_packages", jsonArray.toString())
+                            val jsonString = jsonArray.toString()
+                            BlockRulesManager.updateRules(jsonString)
+                            val prefs = getSharedPreferences("JedaNativePrefs", Context.MODE_PRIVATE)
+                            prefs.edit().putString("blocked_rules_json", jsonString).apply()
+                            intent.putExtra("blocked_packages", jsonString)
                         }
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                             startForegroundService(intent)
@@ -136,6 +169,9 @@ class MainActivity : FlutterActivity() {
                         result.success(null)
                     }
                     "stopMonitoring" -> {
+                        BlockRulesManager.updateRules("[]")
+                        val prefs = getSharedPreferences("JedaNativePrefs", Context.MODE_PRIVATE)
+                        prefs.edit().putString("blocked_rules_json", "[]").apply()
                         stopService(Intent(this, AppMonitorService::class.java))
                         result.success(null)
                     }
@@ -157,8 +193,13 @@ class MainActivity : FlutterActivity() {
                                 }
                                 jsonArray.put(obj)
                             }
+                            val jsonString = jsonArray.toString()
+                            BlockRulesManager.updateRules(jsonString)
+                            val prefs = getSharedPreferences("JedaNativePrefs", Context.MODE_PRIVATE)
+                            prefs.edit().putString("blocked_rules_json", jsonString).apply()
+
                             val intent = Intent("UPDATE_BLOCKED_LIST")
-                            intent.putExtra("blocked_packages", jsonArray.toString())
+                            intent.putExtra("blocked_packages", jsonString)
                             LocalBroadcastManager.getInstance(this).sendBroadcast(intent)
                         }
                         result.success(null)
@@ -222,6 +263,33 @@ class MainActivity : FlutterActivity() {
                             }
                         }
                         result.success(appList)
+                    }
+                    "getAppIcon" -> {
+                        val pkg = call.argument<String>("packageName")
+                        if (pkg.isNullOrEmpty()) {
+                            result.error("INVALID_ARGS", "Package name is null or empty", null)
+                        } else {
+                            try {
+                                val pm = packageManager
+                                val drawable = pm.getApplicationIcon(pkg)
+                                val bitmap = if (drawable is BitmapDrawable && drawable.bitmap != null) {
+                                    drawable.bitmap
+                                } else {
+                                    val width = if (drawable.intrinsicWidth > 0) drawable.intrinsicWidth else 128
+                                    val height = if (drawable.intrinsicHeight > 0) drawable.intrinsicHeight else 128
+                                    val bm = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+                                    val canvas = Canvas(bm)
+                                    drawable.setBounds(0, 0, canvas.width, canvas.height)
+                                    drawable.draw(canvas)
+                                    bm
+                                }
+                                val stream = ByteArrayOutputStream()
+                                bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream)
+                                result.success(stream.toByteArray())
+                            } catch (e: Exception) {
+                                result.success(null)
+                            }
+                        }
                     }
                     "startVpnService" -> {
                         val vpnIntent = VpnService.prepare(this)

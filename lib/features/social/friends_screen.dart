@@ -3,6 +3,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/services/api_service.dart';
 import '../../core/models/api_models.dart';
 import '../../core/providers/auth_provider.dart';
+import '../../core/theme/jeda_colors.dart';
+import '../../core/theme/jeda_radii.dart';
+import '../../core/theme/jeda_typography.dart';
+import '../../core/widgets/jeda_card.dart';
+import '../../core/widgets/jeda_button.dart';
 
 class FriendsScreen extends ConsumerStatefulWidget {
   const FriendsScreen({super.key});
@@ -52,9 +57,9 @@ class _FriendsScreenState extends ConsumerState<FriendsScreen> with SingleTicker
         api.getFollowing(),
         api.getFollowers(),
       ]);
-      final friends = results[0] as List<UserModel>;
-      final following = results[1] as List<UserModel>;
-      final followers = results[2] as List<UserModel>;
+      final friends = results[0];
+      final following = results[1];
+      final followers = results[2];
 
       final followingIds = following.map((u) => u.id).toSet();
 
@@ -96,7 +101,6 @@ class _FriendsScreenState extends ConsumerState<FriendsScreen> with SingleTicker
       final api = ref.read(apiServiceProvider);
       final results = await api.searchUsers(query.trim());
       if (mounted) {
-        // Update local following ids from results
         for (var u in results) {
           if (u.isFollowing) {
             _followingUserIds.add(u.id);
@@ -123,7 +127,6 @@ class _FriendsScreenState extends ConsumerState<FriendsScreen> with SingleTicker
 
     setState(() {
       _loadingActionUserIds.add(targetId);
-      // Optimistic UI update
       if (isFollowing) {
         _followingUserIds.remove(targetId);
       } else {
@@ -146,7 +149,7 @@ class _FriendsScreenState extends ConsumerState<FriendsScreen> with SingleTicker
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text('Berhasil mengikuti @${user.username} 🌱'),
-              backgroundColor: const Color(0xFF87A878),
+              backgroundColor: JedaColors.primary,
             ),
           );
         }
@@ -154,7 +157,6 @@ class _FriendsScreenState extends ConsumerState<FriendsScreen> with SingleTicker
       ref.read(authStateProvider.notifier).refreshProfile();
       _loadAllSocialData();
     } catch (e) {
-      // Revert optimistic update on error
       if (mounted) {
         setState(() {
           if (isFollowing) {
@@ -166,7 +168,7 @@ class _FriendsScreenState extends ConsumerState<FriendsScreen> with SingleTicker
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Gagal: ${e.toString().replaceFirst('Exception: ', '')}'),
-            backgroundColor: Colors.redAccent,
+            backgroundColor: JedaColors.error,
           ),
         );
       }
@@ -182,26 +184,34 @@ class _FriendsScreenState extends ConsumerState<FriendsScreen> with SingleTicker
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF5F0E8),
+      backgroundColor: JedaColors.background,
       appBar: AppBar(
-        title: const Text('Teman & Pengguna 🤝', style: TextStyle(fontWeight: FontWeight.bold)),
-        backgroundColor: const Color(0xFFF5F0E8),
+        title: Text(
+          'Teman & Pengguna',
+          style: JedaTypography.heading3.copyWith(
+            color: JedaColors.textPrimary,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        backgroundColor: JedaColors.background,
         elevation: 0,
+        surfaceTintColor: Colors.transparent,
         actions: [
           IconButton(
-            icon: const Icon(Icons.refresh),
+            icon: const Icon(Icons.refresh_rounded, color: JedaColors.textSecondary),
             onPressed: _loadAllSocialData,
+            tooltip: 'Segarkan',
           ),
         ],
         bottom: !_isSearching
             ? TabBar(
                 controller: _tabController,
-                labelColor: const Color(0xFF87A878),
-                unselectedLabelColor: Colors.grey,
-                indicatorColor: const Color(0xFF87A878),
-                indicatorWeight: 3,
+                labelColor: JedaColors.primary,
+                unselectedLabelColor: JedaColors.textSecondary,
+                indicatorColor: JedaColors.primary,
+                indicatorWeight: 2.5,
                 tabs: [
-                  Tab(text: 'Saling Follow (${_mutualFriends.length})'),
+                  Tab(text: 'Saling Terhubung (${_mutualFriends.length})'),
                   Tab(text: 'Mengikuti (${_following.length})'),
                   Tab(text: 'Pengikut (${_followers.length})'),
                 ],
@@ -210,17 +220,18 @@ class _FriendsScreenState extends ConsumerState<FriendsScreen> with SingleTicker
       ),
       body: Column(
         children: [
-          // Search Bar
           Padding(
-            padding: const EdgeInsets.all(16.0),
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
             child: TextField(
               controller: _searchController,
+              style: JedaTypography.body,
               decoration: InputDecoration(
-                hintText: 'Cari username atau nama pengguna...',
-                prefixIcon: const Icon(Icons.search, color: Color(0xFF87A878)),
+                hintText: 'Cari nama atau @username...',
+                hintStyle: JedaTypography.bodySecondary.copyWith(color: JedaColors.textTertiary),
+                prefixIcon: const Icon(Icons.search_rounded, color: JedaColors.primary, size: 20),
                 suffixIcon: _searchController.text.isNotEmpty
                     ? IconButton(
-                        icon: const Icon(Icons.clear),
+                        icon: const Icon(Icons.clear_rounded, size: 18),
                         onPressed: () {
                           _searchController.clear();
                           _searchUsers('');
@@ -228,10 +239,15 @@ class _FriendsScreenState extends ConsumerState<FriendsScreen> with SingleTicker
                       )
                     : null,
                 filled: true,
-                fillColor: Colors.white,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(16),
-                  borderSide: BorderSide.none,
+                fillColor: JedaColors.surface,
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                enabledBorder: const OutlineInputBorder(
+                  borderRadius: JedaRadii.borderR12,
+                  borderSide: BorderSide(color: JedaColors.border),
+                ),
+                focusedBorder: const OutlineInputBorder(
+                  borderRadius: JedaRadii.borderR12,
+                  borderSide: BorderSide(color: JedaColors.primary, width: 1.5),
                 ),
               ),
               onChanged: (val) {
@@ -241,20 +257,19 @@ class _FriendsScreenState extends ConsumerState<FriendsScreen> with SingleTicker
               },
             ),
           ),
-
           Expanded(
             child: _isLoading && _searchResults.isEmpty && _following.isEmpty
-                ? const Center(child: CircularProgressIndicator(color: Color(0xFF87A878)))
+                ? const Center(child: CircularProgressIndicator(color: JedaColors.primary))
                 : _error != null
-                    ? Center(child: Text(_error!, style: const TextStyle(color: Colors.redAccent)))
+                    ? Center(child: Text(_error!, style: JedaTypography.bodySecondary.copyWith(color: JedaColors.error)))
                     : _isSearching
                         ? _buildSearchResultsView()
                         : TabBarView(
                             controller: _tabController,
                             children: [
-                              _buildUserListView(_mutualFriends, emptyMsg: 'Belum ada teman saling follow.\nCari teman dan ajak saling follow!'),
-                              _buildUserListView(_following, emptyMsg: 'Kamu belum mengikuti siapapun.\nGunakan pencarian di atas untuk follow!'),
-                              _buildUserListView(_followers, emptyMsg: 'Belum ada yang mengikutimu.'),
+                              _buildUserListView(_mutualFriends, emptyMsg: 'Belum ada teman saling terhubung.\nCari teman dan mulai saling dukung!'),
+                              _buildUserListView(_following, emptyMsg: 'Anda belum mengikuti siapa pun.\nGunakan pencarian di atas untuk follow!'),
+                              _buildUserListView(_followers, emptyMsg: 'Belum ada yang mengikuti Anda.'),
                             ],
                           ),
           ),
@@ -265,81 +280,32 @@ class _FriendsScreenState extends ConsumerState<FriendsScreen> with SingleTicker
 
   Widget _buildSearchResultsView() {
     if (_searchResults.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: const [
-            Icon(Icons.person_search_outlined, size: 54, color: Colors.grey),
-            SizedBox(height: 12),
-            Text('Pengguna tidak ditemukan', style: TextStyle(color: Colors.grey)),
-          ],
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.all(32.0),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.person_search_outlined, size: 48, color: JedaColors.textTertiary),
+              SizedBox(height: 12),
+              Text('Pengguna tidak ditemukan', style: JedaTypography.bodySecondary),
+            ],
+          ),
         ),
       );
     }
 
     return ListView.builder(
-      padding: const EdgeInsets.symmetric(horizontal: 16),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       itemCount: _searchResults.length,
       itemBuilder: (context, index) {
         final user = _searchResults[index];
         final isFollowing = _followingUserIds.contains(user.id);
         final isLoadingAction = _loadingActionUserIds.contains(user.id);
 
-        return Card(
-          margin: const EdgeInsets.only(bottom: 10),
-          elevation: 0,
-          color: Colors.white,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          child: ListTile(
-            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-            leading: CircleAvatar(
-              backgroundColor: const Color(0xFFEAF2E8),
-              child: Text(
-                user.name.substring(0, 1).toUpperCase(),
-                style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF87A878)),
-              ),
-            ),
-            title: Text(user.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13), maxLines: 1, overflow: TextOverflow.ellipsis),
-            subtitle: Text('@${user.username} • 🌟 ${user.totalPoints} • 🔥 ${user.currentStreakDays}h', style: const TextStyle(fontSize: 11, color: Colors.grey), maxLines: 1, overflow: TextOverflow.ellipsis),
-            trailing: SizedBox(
-              width: 90,
-              height: 34,
-              child: ElevatedButton(
-                onPressed: isLoadingAction ? null : () => _toggleFollow(user),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: isFollowing ? const Color(0xFFEAF2E8) : const Color(0xFF87A878),
-                  foregroundColor: isFollowing ? const Color(0xFF87A878) : Colors.white,
-                  elevation: 0,
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  side: isFollowing ? const BorderSide(color: Color(0xFF87A878)) : BorderSide.none,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  padding: EdgeInsets.zero,
-                ),
-                child: isLoadingAction
-                    ? SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: isFollowing ? const Color(0xFF87A878) : Colors.white,
-                        ),
-                      )
-                    : FittedBox(
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(isFollowing ? Icons.check : Icons.add, size: 14),
-                            const SizedBox(width: 4),
-                            Text(
-                              isFollowing ? 'Mengikuti' : 'Follow',
-                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11),
-                            ),
-                          ],
-                        ),
-                      ),
-              ),
-            ),
-          ),
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 8.0),
+          child: _buildUserCard(user, isFollowing, isLoadingAction),
         );
       },
     );
@@ -353,12 +319,12 @@ class _FriendsScreenState extends ConsumerState<FriendsScreen> with SingleTicker
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Icon(Icons.people_outline, size: 60, color: Colors.grey),
+              const Icon(Icons.people_outline_rounded, size: 54, color: JedaColors.textTertiary),
               const SizedBox(height: 12),
               Text(
                 emptyMsg,
                 textAlign: TextAlign.center,
-                style: const TextStyle(color: Colors.grey, fontSize: 13, height: 1.4),
+                style: JedaTypography.bodySecondary.copyWith(height: 1.45),
               ),
             ],
           ),
@@ -374,63 +340,65 @@ class _FriendsScreenState extends ConsumerState<FriendsScreen> with SingleTicker
         final isFollowing = _followingUserIds.contains(user.id);
         final isLoadingAction = _loadingActionUserIds.contains(user.id);
 
-        return Card(
-          margin: const EdgeInsets.only(bottom: 10),
-          elevation: 0,
-          color: Colors.white,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          child: ListTile(
-            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-            leading: CircleAvatar(
-              backgroundColor: const Color(0xFFEAF2E8),
-              child: Text(
-                user.name.substring(0, 1).toUpperCase(),
-                style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF87A878)),
-              ),
-            ),
-            title: Text(user.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13), maxLines: 1, overflow: TextOverflow.ellipsis),
-            subtitle: Text('@${user.username} • 🌟 ${user.totalPoints} • 🔥 ${user.currentStreakDays}h', style: const TextStyle(fontSize: 11, color: Colors.grey), maxLines: 1, overflow: TextOverflow.ellipsis),
-            trailing: SizedBox(
-              width: 90,
-              height: 34,
-              child: ElevatedButton(
-                onPressed: isLoadingAction ? null : () => _toggleFollow(user),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: isFollowing ? const Color(0xFFEAF2E8) : const Color(0xFF87A878),
-                  foregroundColor: isFollowing ? const Color(0xFF87A878) : Colors.white,
-                  elevation: 0,
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  side: isFollowing ? const BorderSide(color: Color(0xFF87A878)) : BorderSide.none,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  padding: EdgeInsets.zero,
-                ),
-                child: isLoadingAction
-                    ? SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: isFollowing ? const Color(0xFF87A878) : Colors.white,
-                        ),
-                      )
-                    : FittedBox(
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(isFollowing ? Icons.check : Icons.add, size: 14),
-                            const SizedBox(width: 4),
-                            Text(
-                              isFollowing ? 'Mengikuti' : 'Follow',
-                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11),
-                            ),
-                          ],
-                        ),
-                      ),
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 8.0),
+          child: _buildUserCard(user, isFollowing, isLoadingAction),
+        );
+      },
+    );
+  }
+
+  Widget _buildUserCard(UserModel user, bool isFollowing, bool isLoadingAction) {
+    return JedaCard(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      child: Row(
+        children: [
+          CircleAvatar(
+            radius: 18,
+            backgroundColor: JedaColors.primarySoft,
+            child: Text(
+              user.name.isNotEmpty ? user.name.substring(0, 1).toUpperCase() : 'U',
+              style: JedaTypography.labelBold.copyWith(
+                color: JedaColors.primary,
+                fontSize: 14,
               ),
             ),
           ),
-        );
-      },
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  user.name,
+                  style: JedaTypography.labelBold.copyWith(fontSize: 13.5),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  '@${user.username} • ${user.totalPoints} poin • ${user.currentStreakDays}h streak',
+                  style: JedaTypography.caption.copyWith(color: JedaColors.textSecondary),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          SizedBox(
+            width: 84,
+            height: 32,
+            child: JedaButton(
+              label: isFollowing ? 'Mengikuti' : 'Ikuti',
+              variant: isFollowing ? JedaButtonVariant.secondary : JedaButtonVariant.primary,
+              height: 32,
+              isLoading: isLoadingAction,
+              onPressed: () => _toggleFollow(user),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
